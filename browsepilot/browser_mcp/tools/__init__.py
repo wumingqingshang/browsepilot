@@ -49,5 +49,38 @@ def filter_js_script(script: str) -> tuple:
 
 
 def register_all_tools(server, browser) -> None:
-    """Register all MCP tools on the server. Tools will be added in Task 1.3."""
-    pass  # placeholder — actual tools registered in Task 1.3
+    from browser_mcp.tools.navigate import navigate
+    from browser_mcp.tools.click import click
+    from browser_mcp.tools.type_text import type_text
+    from browser_mcp.tools.get_content import get_content
+    from browser_mcp.tools.screenshot import screenshot as screenshot_tool
+    from browser_mcp.tools.scroll import scroll
+    from browser_mcp.tools.execute_script import execute_script
+
+    @server.tool()
+    async def tool_navigate(url: str) -> dict:
+        return await navigate(browser, url)
+
+    @server.tool()
+    async def tool_click(selector: str) -> dict:
+        return await click(browser, selector)
+
+    @server.tool()
+    async def tool_type_text(selector: str, text: str) -> dict:
+        return await type_text(browser, selector, text)
+
+    @server.tool()
+    async def tool_get_content(format: str = "text") -> dict:
+        return await get_content(browser, format)
+
+    @server.tool()
+    async def tool_screenshot(full_page: bool = True) -> dict:
+        return await screenshot_tool(browser, full_page)
+
+    @server.tool()
+    async def tool_scroll(direction: str = "down", amount: int = 500) -> dict:
+        return await scroll(browser, direction, amount)
+
+    @server.tool()
+    async def tool_execute_script(script: str) -> dict:
+        return await execute_script(browser, script)
