@@ -1,0 +1,175 @@
+"""Unit tests for security validators."""
+
+import pytest
+import browser_mcp.tools as tools_module
+from browser_mcp.tools import validate_url, filter_js_script, set_allowed_domains
+
+
+class TestValidateUrl:
+    """Tests for validate_url function."""
+
+    def test_allows_http_url(self):
+        """validate_url should allow standard http URLs."""
+        is_valid, msg = validate_url("http://example.com")
+        assert is_valid is True
+        assert msg == ""
+
+    def test_allows_https_url(self):
+        """validate_url should allow standard https URLs."""
+        is_valid, msg = validate_url("https://example.com/path?q=1")
+        assert is_valid is True
+        assert msg == ""
+
+    def test_allows_url_with_port(self):
+        """validate_url should allow URLs with explicit ports."""
+        is_valid, msg = validate_url("http://localhost:8080/page")
+        assert is_valid is True
+
+    def test_allows_url_with_subdomain(self):
+        """validate_url should allow URLs with subdomains."""
+        is_valid, msg = validate_url("https://sub.example.com/path")
+        assert is_valid is True
+
+    def test_blocks_file_protocol(self):
+        """validate_url should block file:// URLs."""
+        is_valid, msg = validate_url("file:///etc/passwd")
+        assert is_valid is False
+        assert "protocol_blocked" in msg
+        assert "file://" in msg
+
+    def test_blocks_file_protocol_no_double_slash(self):
+        """validate_url should block file: URLs without //."""
+        is_valid, msg = validate_url("file:C:/windows/system32")
+        assert is_valid is False
+        assert "protocol_blocked" in msg
+
+    def test_blocks_non_http_scheme(self):
+        """validate_url should block non-http schemes like ftp or javascript."""
+        is_valid, msg = validate_url("ftp://example.com/file")
+        assert is_valid is False
+        assert "protocol_blocked" in msg
+        assert "ftp" in msg
+
+    def test_blocks_javascript_scheme(self):
+        """validate_url should block javascript: URLs."""
+        is_valid, msg = validate_url("javascript:alert(1)")
+        assert is_valid is False
+        assert "protocol_blocked" in msg
+
+    def test_blocks_empty_string(self):
+        """validate_url should handle empty string gracefully."""
+        is_valid, msg = validate_url("")
+        assert is_valid is False
+        assert "protocol_blocked" in msg
+
+
+class TestValidateUrlWithWhitelist:
+    """Tests for validate_url with domain whitelist active."""
+
+    def setup_method(self):
+        """Set allowed domains before each test."""
+        set_allowed_domains(["github.com", "example.com"])
+
+    def teardown_method(self):
+        """Clear allowed domains after each test."""
+        set_allowed_domains([])
+
+    def test_allows_whitelisted_domain(self):
+        """validate_url should allow domains in the whitelist."""
+        is_valid, msg = validate_url("https://github.com/user/repo")
+        assert is_valid is True
+
+    def test_allows_subdomain_of_whitelisted(self):
+        """validate_url should allow subdomains of whitelisted domains."""
+        is_valid, msg = validate_url("https://api.github.com")
+        assert is_valid is True
+
+    def test_blocks_non_whitelisted_domain(self):
+        """validate_url should block domains not in the whitelist."""
+        is_valid, msg = validate_url("https://evil.com")
+        assert is_valid is False
+        assert "domain_not_allowed" in msg
+
+    def test_blocks_url_without_hostname(self):
+        """validate_url should block URLs whose hostname is not in the whitelist."""
+        is_valid, msg = validate_url("https://google.com")
+        assert is_valid is False
+        assert "domain_not_allowed" in msg
+
+
+class TestFilterJsScript:
+    """Tests for filter_js_script function."""
+
+    def test_allows_safe_script(self):
+        """filter_js_script should allow safe JavaScript."""
+        is_safe, msg = filter_js_script("document.title")
+        assert is_safe is True
+        assert msg == ""
+
+    def test_allows_console_log(self):
+        """filter_js_script should allow simple console.log."""
+        is_safe, msg = filter_js_script("console.log('hello')")
+        assert is_safe is True
+
+    def test_allows_dom_manipulation(self):
+        """filter_js_script should allow DOM manipulation."""
+        is_safe, msg = filter_js_script(
+            "document.querySelector('.btn').click()"
+        )
+        assert is_safe is True
+
+    def test_allows_empty_script(self):
+        """filter_js_script should allow empty string."""
+        is_safe, msg = filter_js_script("")
+        assert is_safe is True
+
+    def test_blocks_eval(self):
+        """filter_js_script should block eval."""
+        is_safe, msg = filter_js_script("eval('alert(1)')")
+        assert is_safe is False
+        assert "eval" in msg
+
+    def test_blocks_fetch(self):
+        """filter_js_script should block fetch."""
+        is_safe, msg = filter_js_script("fetch('https://evil.com')")
+        assert is_safe is False
+        assert "fetch" in msg
+
+    def test_blocks_xml_http_request(self):
+        """filter_js_script should block XMLHttpRequest."""
+        is_safe, msg = filter_js_script("new XMLHttpRequest()")
+        assert is_safe is False
+        assert "XMLHttpRequest" in msg
+
+    def test_blocks_websocket(self):
+        """filter_js_script should block WebSocket."""
+        is_safe, msg = filter_js_script("new WebSocket('ws://evil.com')")
+        assert is_safe is False
+        assert "WebSocket" in msg
+
+    def test_blocks_localstorage(self):
+        """filter_js_script should block localStorage access."""
+        is_safe, msg = filter_js_script("localStorage.getItem('token')")
+        assert is_safe is False
+        assert "localStorage" in msg
+
+    def test_blocks_sessionstorage(self):
+        """filter_js_script should block sessionStorage access."""
+        is_safe, msg = filter_js_script("sessionStorage.setItem('k', 'v')")
+        assert is_safe is False
+        assert "sessionStorage" in msg
+
+
+class TestAllowedDomainsManagement:
+    """Tests for set_allowed_domains function."""
+
+    def test_sets_global_allowed_domains(self):
+        """set_allowed_domains should set the global ALLOWED_DOMAINS."""
+        set_allowed_domains(["gitlab.com", "bitbucket.org"])
+        assert tools_module.ALLOWED_DOMAINS == ["gitlab.com", "bitbucket.org"]
+        set_allowed_domains([])  # cleanup
+
+    def test_empty_list_clears_allowed_domains(self):
+        """set_allowed_domains with empty list should clear allowed domains."""
+        set_allowed_domains([])
+        assert tools_module.ALLOWED_DOMAINS == []
