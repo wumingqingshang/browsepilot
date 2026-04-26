@@ -1,5 +1,6 @@
 """MCP tool implementations for browser automation."""
 
+import re
 from urllib.parse import urlparse
 
 ALLOWED_DOMAINS: list[str] = []
@@ -12,6 +13,8 @@ def set_allowed_domains(domains: list[str]) -> None:
 
 def validate_url(url: str) -> tuple:
     """Validate URL against security policy. Returns (is_valid, error_message)."""
+    if not isinstance(url, str):
+        return False, "invalid_input: URL must be a string"
     if url.startswith("file://") or url.startswith("file:"):
         return False, "protocol_blocked: file:// protocol is not allowed"
     parsed = urlparse(url)
@@ -29,12 +32,19 @@ def validate_url(url: str) -> tuple:
     return True, ""
 
 
+_blocked_pattern = re.compile(
+    r'\b(eval|fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage)\b',
+    re.IGNORECASE
+)
+
+
 def filter_js_script(script: str) -> tuple:
     """Validate JS script safety. Returns (is_safe, error_message)."""
-    blocked = ["eval", "fetch", "XMLHttpRequest", "WebSocket", "localStorage", "sessionStorage"]
-    for keyword in blocked:
-        if keyword in script:
-            return False, f"script_blocked: '{keyword}' is not allowed"
+    if not isinstance(script, str):
+        return False, "invalid_input: script must be a string"
+    m = _blocked_pattern.search(script)
+    if m:
+        return False, f"script_blocked: '{m.group(1)}' is not allowed"
     return True, ""
 
 

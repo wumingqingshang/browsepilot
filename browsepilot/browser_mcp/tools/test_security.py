@@ -5,6 +5,14 @@ import browser_mcp.tools as tools_module
 from browser_mcp.tools import validate_url, filter_js_script, set_allowed_domains
 
 
+@pytest.fixture(autouse=True)
+def reset_allowed_domains():
+    """Reset ALLOWED_DOMAINS before and after each test."""
+    set_allowed_domains([])
+    yield
+    set_allowed_domains([])
+
+
 class TestValidateUrl:
     """Tests for validate_url function."""
 
@@ -158,6 +166,30 @@ class TestFilterJsScript:
         is_safe, msg = filter_js_script("sessionStorage.setItem('k', 'v')")
         assert is_safe is False
         assert "sessionStorage" in msg
+
+    def test_allows_evaluate_not_a_keyword(self):
+        """filter_js_script should allow 'evaluate' (word boundary working)."""
+        is_safe, msg = filter_js_script("document.evaluate('//div', document)")
+        assert is_safe is True
+        assert msg == ""
+
+    def test_blocks_eval_uppercase(self):
+        """filter_js_script should block 'EVAL' (case insensitive)."""
+        is_safe, msg = filter_js_script("EVAL('alert(1)')")
+        assert is_safe is False
+        assert "eval" in msg.lower()
+
+    def test_blocks_non_string_input_int(self):
+        """filter_js_script should return error for non-string input (int)."""
+        is_safe, msg = filter_js_script(42)
+        assert is_safe is False
+        assert "invalid_input" in msg
+
+    def test_blocks_non_string_input_none(self):
+        """filter_js_script should return error for non-string input (None)."""
+        is_safe, msg = filter_js_script(None)
+        assert is_safe is False
+        assert "invalid_input" in msg
 
 
 class TestAllowedDomainsManagement:

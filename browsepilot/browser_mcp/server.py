@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,7 +13,8 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 
 # Load .env from project root (browsepilot/)
-load_dotenv()
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 from browser_mcp.browser_manager import BrowserManager
 from browser_mcp.tools import set_allowed_domains, register_all_tools
@@ -48,7 +48,9 @@ async def run_sse():
     )
     import uvicorn
 
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")
+    log_level = os.getenv("LOG_LEVEL", "info").lower()
+    config = uvicorn.Config(app, host=host, port=port, log_level=log_level)
     server = uvicorn.Server(config)
     logger.info("browser-mcp SSE server starting on port {}", port)
     await server.serve()

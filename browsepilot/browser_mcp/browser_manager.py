@@ -1,5 +1,7 @@
 """Playwright browser instance lifecycle management."""
 
+import base64
+
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from loguru import logger
 
@@ -14,6 +16,8 @@ class BrowserManager:
         self._page: Page | None = None
 
     async def start(self) -> Page:
+        if self._playwright is not None:
+            await self.stop()
         logger.info("Starting browser instance (headless={})", self.headless)
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(
@@ -35,28 +39,32 @@ class BrowserManager:
         page = await self.get_page()
         try:
             await page.evaluate("window.alert = () => {}; window.confirm = () => true; window.prompt = () => '';")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to dismiss dialogs: {}", e)
 
     async def screenshot(self, full_page: bool = True) -> str:
-        import base64
         page = await self.get_page()
         data = await page.screenshot(full_page=full_page, type="png")
         return base64.b64encode(data).decode("utf-8")
 
     async def stop(self) -> None:
         logger.info("Stopping browser instance")
-        try:
-            if self._context:
+        if self._context:
+            try:
                 await self._context.close()
-            if self._browser:
+            except Exception as e:
+                logger.warning("Error closing context: {}", e)
+        if self._browser:
+            try:
                 await self._browser.close()
-            if self._playwright:
+            except Exception as e:
+                logger.warning("Error closing browser: {}", e)
+        if self._playwright:
+            try:
                 await self._playwright.stop()
-        except Exception as e:
-            logger.warning("Error during browser shutdown: {}", e)
-        finally:
-            self._page = None
-            self._context = None
-            self._browser = None
-            self._playwright = None
+            except Exception as e:
+                logger.warning("Error stopping playwright: {}", e)
+        self._page = None
+        self._context = None
+        self._browser = None
+        self._playwright = None
