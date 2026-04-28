@@ -1,7 +1,13 @@
 """Click tool — click an element by selector."""
 
+from mcp.server.fastmcp import Context
+from browser_mcp.server import mcp
 
-async def click(browser, selector: str) -> dict:
+
+@mcp.tool()
+async def click(selector: str, ctx: Context) -> dict:
+    """Click an element identified by a CSS selector."""
+    browser = ctx.request_context.lifespan_context["browser"]
     page = await browser.get_page()
     await browser.dismiss_dialogs()
     try:

@@ -1,7 +1,13 @@
 """Type text tool — type into an input element."""
 
+from mcp.server.fastmcp import Context
+from browser_mcp.server import mcp
 
-async def type_text(browser, selector: str, text: str) -> dict:
+
+@mcp.tool()
+async def type_text(selector: str, text: str, ctx: Context) -> dict:
+    """Type text into an input element identified by a CSS selector."""
+    browser = ctx.request_context.lifespan_context["browser"]
     page = await browser.get_page()
     await browser.dismiss_dialogs()
     try:

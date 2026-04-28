@@ -1,10 +1,16 @@
 """Navigate tool — go to a URL."""
 
 import asyncio
+
+from mcp.server.fastmcp import Context
+from browser_mcp.server import mcp
 from browser_mcp.tools import validate_url
 
 
-async def navigate(browser, url: str) -> dict:
+@mcp.tool()
+async def navigate(url: str, ctx: Context) -> dict:
+    """Navigate the browser to a URL."""
+    browser = ctx.request_context.lifespan_context["browser"]
     is_valid, error = validate_url(url)
     if not is_valid:
         return {"status": "error", "error": error}
