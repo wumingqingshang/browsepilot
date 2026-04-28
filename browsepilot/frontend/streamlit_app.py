@@ -151,6 +151,14 @@ if "plan_steps" not in st.session_state:
     st.session_state.plan_steps = []
 if "session_id" not in st.session_state:
     st.session_state.session_id = None
+if "thinking_phase" not in st.session_state:
+    st.session_state.thinking_phase = None  # None | "planning" | "executing" | "reflecting" | "replanning" | "answering"
+if "thinking_message" not in st.session_state:
+    st.session_state.thinking_message = ""
+if "current_step_index" not in st.session_state:
+    st.session_state.current_step_index = 0
+if "total_steps" not in st.session_state:
+    st.session_state.total_steps = 0
 
 # ---- Layout ----
 left_col, right_col = st.columns([7, 3])
@@ -210,10 +218,22 @@ with left_col:
 
                         event_type = event.get("event")
 
-                        if event_type == "plan_generated":
+                        if event_type == "thinking_status":
+                            phase = event["data"].get("phase", "")
+                            message = event["data"].get("message", "")
+                            step_index = event["data"].get("step_index", 0)
+                            total_steps = event["data"].get("total_steps", 0)
+                            st.session_state.thinking_phase = phase
+                            st.session_state.thinking_message = message
+                            st.session_state.current_step_index = step_index
+                            st.session_state.total_steps = total_steps or len(st.session_state.plan_steps)
+
+                        elif event_type == "plan_generated":
                             steps = event["data"].get("steps", [])
                             st.session_state.plan_steps = steps
                             st.session_state.current_step = steps[0] if steps else ""
+                            st.session_state.total_steps = len(steps)
+                            st.session_state.thinking_phase = "executing"
                             progress_placeholder.info(f"📋 已生成 {len(steps)} 步执行计划...")
 
                         elif event_type == "step_start":
