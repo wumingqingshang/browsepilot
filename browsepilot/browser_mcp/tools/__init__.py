@@ -47,15 +47,3 @@ def filter_js_script(script: str) -> tuple:
         return False, f"script_blocked: '{m.group(1)}' is not allowed"
     return True, ""
 
-
-def register_all_tools(server, browser) -> None:
-    """Backward-compatible registration — tools are auto-registered via @mcp.tool() decorators.
-    Import the tool modules to trigger decorator registration."""
-    import browser_mcp.tools.navigate  # noqa: F401
-    import browser_mcp.tools.click  # noqa: F401
-    import browser_mcp.tools.type_text  # noqa: F401
-    import browser_mcp.tools.get_content  # noqa: F401
-    import browser_mcp.tools.screenshot  # noqa: F401
-    import browser_mcp.tools.scroll  # noqa: F401
-    import browser_mcp.tools.execute_script  # noqa: F401
-    import browser_mcp.tools.get_page_structure  # noqa: F401
