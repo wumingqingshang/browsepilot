@@ -125,11 +125,18 @@ CSS = """
 st.markdown(CSS, unsafe_allow_html=True)
 
 # ---- Sidebar ----
-st.sidebar.title("BrowsePilot")
-st.sidebar.markdown("具备深度规划与自省能力的浏览器自动化 AI 助手")
-api_url = st.sidebar.text_input("Backend API URL", value="http://localhost:8000")
-st.sidebar.markdown("---")
-st.sidebar.caption("输入自然语言指令，Agent 自主操控浏览器完成任务")
+with st.sidebar:
+    st.markdown(
+        '<span style="font-family:Georgia,serif;font-size:20px;font-weight:700;'
+        'color:#1a1a1a;letter-spacing:-0.5px">BrowsePilot</span>',
+        unsafe_allow_html=True,
+    )
+    st.caption("浏览器自动化 AI 助手")
+    st.markdown("---")
+    api_url = st.text_input("Backend API URL", value="http://localhost:8000", label_visibility="collapsed")
+    st.markdown("---")
+    if st.session_state.get("session_id"):
+        st.caption(f"Session #{st.session_state.session_id}")
 
 # ---- Session State ----
 if "messages" not in st.session_state:
@@ -142,6 +149,8 @@ if "token_count" not in st.session_state:
     st.session_state.token_count = 0
 if "plan_steps" not in st.session_state:
     st.session_state.plan_steps = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
 
 # ---- Layout ----
 left_col, right_col = st.columns([7, 3])
