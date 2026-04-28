@@ -10,6 +10,121 @@ import requests
 
 st.set_page_config(page_title="BrowsePilot", layout="wide")
 
+# ---- CSS Injection ----
+CSS = """
+<style>
+/* === Swiss Editorial Design Tokens === */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap');
+
+:root {
+  --bg: #faf9f6;
+  --surface: #fefdfb;
+  --border: #d4cdc2;
+  --card-border: #e8e0d4;
+  --text-primary: #1a1a1a;
+  --text-body: #4a4238;
+  --text-muted: #8b7f6e;
+  --text-disabled: #c4b5a5;
+  --accent: #e33e2b;
+}
+
+/* Page background */
+.stApp, section.main, .main .block-container {
+  background-color: var(--bg);
+}
+
+/* Typography */
+.stApp, .stMarkdown, .stChatMessage, .stChatInput, .stSelectbox, p, span, div {
+  font-family: Georgia, 'Times New Roman', serif !important;
+}
+
+/* Column divider */
+[data-testid="column"] + [data-testid="column"] {
+  border-left: 1px solid var(--border);
+}
+
+/* Card styling */
+.stContainer, [data-testid="stVerticalBlock"] {
+  border: 1px solid var(--card-border);
+  background: var(--surface);
+}
+
+/* Chat messages */
+[data-testid="stChatMessage"] {
+  background: transparent !important;
+}
+
+/* Input underline */
+[data-testid="stChatInput"] {
+  border-top: 1px solid var(--border);
+}
+
+/* Selectbox */
+.stSelectbox select {
+  border: 1px solid var(--card-border) !important;
+  background: var(--surface) !important;
+  color: var(--text-body) !important;
+}
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+
+/* Sidebar cleanup — hide default sidebar nav */
+[data-testid="stSidebarNav"] { display: none; }
+
+/* Animations */
+@keyframes fadeInOut {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.live-dot {
+  display: inline-block;
+  width: 5px; height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: fadeInOut 1.5s ease-in-out infinite;
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 4px; height: 4px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: fadeInOut 1s ease-in-out infinite;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+/* Progress bar segments */
+.progress-bar { display: flex; gap: 3px; margin-top: 8px; }
+.progress-segment { height: 3px; flex: 1; background: var(--card-border); }
+.progress-segment.done { background: var(--accent); }
+.progress-segment.active { background: var(--accent); animation: fadeInOut 1s ease-in-out infinite; }
+
+/* Phase label */
+.phase-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-family: Georgia, serif;
+}
+
+/* Plan card step line */
+.plan-step { line-height: 2; font-size: 12px; }
+.plan-step.done { color: var(--text-disabled); text-decoration: line-through; }
+.plan-step.current { color: var(--accent); font-weight: 600; font-style: italic; border-left: 2px solid var(--accent); padding-left: 8px; }
+.plan-step.pending { color: var(--text-muted); }
+</style>
+"""
+
+st.markdown(CSS, unsafe_allow_html=True)
+
 # ---- Sidebar ----
 st.sidebar.title("BrowsePilot")
 st.sidebar.markdown("具备深度规划与自省能力的浏览器自动化 AI 助手")
