@@ -19,6 +19,12 @@ venv/
 # Environment files with secrets
 .env
 
+# Worktrees
+.worktrees/
+
+# Superpowers
+.superpowers/
+
 # OS
 .DS_Store
 Thumbs.db
