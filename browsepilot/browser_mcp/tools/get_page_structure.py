@@ -10,7 +10,6 @@ async def get_page_structure(ctx: Context) -> dict:
     browser = ctx.request_context.lifespan_context["browser"]
     page = await browser.get_page()
     try:
-        # Static tool-internal JavaScript — no user input, no security filtering needed
         structure = await page.evaluate("""
             () => {
                 const getBestSelector = (el) => {
