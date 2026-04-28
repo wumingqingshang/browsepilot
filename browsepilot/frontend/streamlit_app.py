@@ -159,6 +159,10 @@ if "current_step_index" not in st.session_state:
     st.session_state.current_step_index = 0
 if "total_steps" not in st.session_state:
     st.session_state.total_steps = 0
+if "prompt_tokens" not in st.session_state:
+    st.session_state.prompt_tokens = 0
+if "completion_tokens" not in st.session_state:
+    st.session_state.completion_tokens = 0
 
 # ---- Phase Display Helpers ----
 
@@ -203,8 +207,6 @@ left_col, right_col = st.columns([7, 3])
 
 # ===== LEFT PANEL: Chat =====
 with left_col:
-    st.subheader("对话")
-
     # Render chat history (rendered on each rerun)
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -319,6 +321,8 @@ with left_col:
                         elif event_type == "token_update":
                             prompt = event["data"].get("prompt", 0)
                             completion = event["data"].get("completion", 0)
+                            st.session_state.prompt_tokens = prompt
+                            st.session_state.completion_tokens = completion
                             st.session_state.token_count = prompt + completion
 
                         elif event_type == "final_answer":
@@ -347,43 +351,107 @@ with left_col:
 
 # ===== RIGHT PANEL: Monitoring =====
 with right_col:
-    st.subheader("监控面板")
-
-    # Plan display
-    if st.session_state.plan_steps:
-        with st.expander("执行计划", expanded=True):
+    # ---- Row 1: Plan + Token ----
+    plan_col, token_col = st.columns([3, 1])
+    with plan_col:
+        if st.session_state.plan_steps:
+            total = len(st.session_state.plan_steps)
+            current = st.session_state.current_step_index
+            steps_html = '<div style="font-family:Georgia,serif">'
+            steps_html += (
+                '<span style="font-size:10px;color:#a0988a;letter-spacing:2px;'
+                'text-transform:uppercase">执行计划</span>'
+            )
+            steps_html += (
+                f'<span style="float:right;font-family:Georgia,serif;font-size:18px;'
+                f'font-weight:700;color:#e33e2b;line-height:1">{current}'
+                f'<span style="font-size:10px;color:#a0988a">/{total}</span></span>'
+            )
             for i, s in enumerate(st.session_state.plan_steps):
-                if i == 0 and st.session_state.current_step:
-                    st.markdown(f"**🔵 {s}**")
+                if i < current - 1:
+                    cls = "done"
+                elif i == current - 1:
+                    cls = "current"
                 else:
-                    st.caption(f"{i+1}. {s}")
+                    cls = "pending"
+                steps_html += f'<div class="plan-step {cls}">{i+1}. {s}</div>'
+            steps_html += '</div>'
+            st.markdown(steps_html, unsafe_allow_html=True)
+        else:
+            st.markdown(
+                '<span style="font-size:10px;color:#a0988a;letter-spacing:2px;'
+                'text-transform:uppercase;font-family:Georgia,serif">执行计划</span>'
+                '<div style="color:#c4b5a5;font-size:12px;font-family:Georgia,serif;'
+                'font-style:italic;margin-top:8px">等待任务...</div>',
+                unsafe_allow_html=True,
+            )
 
-    # Current step
-    if st.session_state.current_step:
-        st.info(f"当前: {st.session_state.current_step}")
+    with token_col:
+        prompt_tokens = st.session_state.get("prompt_tokens", 0)
+        completion_tokens = st.session_state.get("completion_tokens", 0)
+        total_tokens = st.session_state.token_count or (prompt_tokens + completion_tokens)
+        token_html = (
+            '<div style="font-family:Georgia,serif">'
+            '<span style="font-size:10px;color:#a0988a;letter-spacing:2px;'
+            'text-transform:uppercase">Token</span>'
+            '<div style="font-size:11px;line-height:2.2;color:#8b7f6e;margin-top:8px">'
+            f'输入 <b style="color:#1a1a1a;font-size:14px">{prompt_tokens:,}</b><br>'
+            f'输出 <b style="color:#1a1a1a;font-size:14px">{completion_tokens:,}</b><br>'
+            '<div style="border-top:1px solid #e8e0d4;margin-top:4px;padding-top:4px">'
+            f'总计 <b style="color:#e33e2b;font-size:14px">{total_tokens:,}</b>'
+            '</div></div></div>'
+        )
+        st.markdown(token_html, unsafe_allow_html=True)
 
-    # Live screenshot
+    # ---- Row 2: Screenshot ----
+    screenshot_html = (
+        '<div style="font-family:Georgia,serif;margin-top:4px">'
+        '<span style="font-size:10px;color:#a0988a;letter-spacing:2px;'
+        'text-transform:uppercase">实时截图</span>'
+    )
+    if st.session_state.thinking_phase == "executing":
+        screenshot_html += '<span class="live-dot" style="margin-left:6px"></span>'
+    screenshot_html += '</div>'
+    st.markdown(screenshot_html, unsafe_allow_html=True)
+
     if st.session_state.current_screenshot:
         try:
             img_data = base64.b64decode(st.session_state.current_screenshot)
-            st.image(BytesIO(img_data), caption="实时截图", use_container_width=True)
+            st.image(BytesIO(img_data), use_container_width=True)
         except Exception:
-            st.caption("(截图加载失败)")
+            st.markdown(
+                '<div style="border:1px dashed #e8e0d4;padding:20px;text-align:center;'
+                'color:#c4b5a5;font-family:Georgia,serif;font-style:italic;font-size:12px">'
+                '截图加载失败</div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown(
+            '<div style="border:1px dashed #e8e0d4;padding:20px;text-align:center;'
+            'color:#c4b5a5;font-family:Georgia,serif;font-style:italic;font-size:12px">'
+            '等待浏览器截图...</div>',
+            unsafe_allow_html=True,
+        )
 
-    # Token counter
-    st.metric("Token 消耗", st.session_state.token_count)
-
-    # Replay section
-    st.divider()
-    st.subheader("操作回放")
+    # ---- Row 3: Replay ----
+    st.markdown("---")
+    st.markdown(
+        '<span style="font-size:10px;color:#a0988a;letter-spacing:2px;'
+        'text-transform:uppercase;font-family:Georgia,serif">操作回放</span>',
+        unsafe_allow_html=True,
+    )
     try:
         sessions_resp = requests.get(f"{api_url}/sessions", timeout=5)
         if sessions_resp.ok:
             sessions = sessions_resp.json()
             if sessions:
-                selected = st.selectbox("选择历史会话", sessions)
+                selected = st.selectbox(
+                    "选择历史会话", sessions, label_visibility="collapsed"
+                )
                 if selected and st.button("查看回放"):
-                    replay_resp = requests.get(f"{api_url}/replay/{selected}", timeout=5)
+                    replay_resp = requests.get(
+                        f"{api_url}/replay/{selected}", timeout=5
+                    )
                     if replay_resp.ok:
                         steps = replay_resp.json()
                         for s in steps:
@@ -391,7 +459,11 @@ with right_col:
                             if s.get("screenshot_path"):
                                 try:
                                     with open(s["screenshot_path"], "rb") as f:
-                                        st.image(f.read(), caption=s["step"], use_container_width=True)
+                                        st.image(
+                                            f.read(),
+                                            caption=s["step"],
+                                            use_container_width=True,
+                                        )
                                 except FileNotFoundError:
                                     st.caption("(截图文件不存在)")
             else:
