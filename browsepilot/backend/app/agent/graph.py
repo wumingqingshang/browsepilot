@@ -14,14 +14,14 @@ def build_graph(mcp_client: MCPClient):
     """Build and compile the BrowsePilot agent StateGraph."""
     workflow = StateGraph(AgentState)
 
-    # Holder for built tools (lazy init on first execute)
-    langchain_tools_holder = {"tools": []}
+    # Holder for built tools — None means not yet initialized
+    langchain_tools_holder = {"tools": None}
 
     async def plan(state: AgentState) -> dict:
         return await plan_node(state, mcp_client)
 
     async def execute(state: AgentState) -> dict:
-        if not langchain_tools_holder["tools"]:
+        if langchain_tools_holder["tools"] is None:
             langchain_tools_holder["tools"] = await build_tools_from_mcp(mcp_client)
         return await execute_node(state, mcp_client, langchain_tools_holder["tools"])
 
