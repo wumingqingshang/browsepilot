@@ -1,9 +1,14 @@
 """Execute script tool — run limited safe JavaScript."""
 
+from mcp.server.fastmcp import Context
+from browser_mcp.server import mcp
 from browser_mcp.tools import filter_js_script
 
 
-async def execute_script(browser, script: str) -> dict:
+@mcp.tool()
+async def execute_script(script: str, ctx: Context) -> dict:
+    """Execute a safe JavaScript script on the page."""
+    browser = ctx.request_context.lifespan_context["browser"]
     is_safe, error = filter_js_script(script)
     if not is_safe:
         return {"status": "error", "error": error, "result": None}

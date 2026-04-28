@@ -1,7 +1,13 @@
 """Scroll tool — scroll the page up or down."""
 
+from mcp.server.fastmcp import Context
+from browser_mcp.server import mcp
 
-async def scroll(browser, direction: str = "down", amount: int = 500) -> dict:
+
+@mcp.tool()
+async def scroll(ctx: Context, direction: str = "down", amount: int = 500) -> dict:
+    """Scroll the page up or down by a given pixel amount."""
+    browser = ctx.request_context.lifespan_context["browser"]
     page = await browser.get_page()
     try:
         pixels = amount if direction == "down" else -amount
