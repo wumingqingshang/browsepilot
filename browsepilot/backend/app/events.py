@@ -40,5 +40,9 @@ class SSEData:
         return {"event": "final_answer", "data": {"content": content, "total_tokens": total_tokens}}
 
     @staticmethod
+    def thinking_status(phase: str, message: str, step_index: int = 0, total_steps: int = 0) -> dict:
+        return {"event": "thinking_status", "data": {"phase": phase, "message": message, "step_index": step_index, "total_steps": total_steps}}
+
+    @staticmethod
     def error(message: str) -> dict:
         return {"event": "error", "data": {"message": message}}
