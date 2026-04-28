@@ -32,8 +32,8 @@ CSS = """
 }
 
 /* Typography */
-.stApp, .stMarkdown, .stChatMessage, .stChatInput, .stSelectbox, p, span, div {
-  font-family: Georgia, 'Times New Roman', serif !important;
+.stApp, .stMarkdown, .stChatMessage, .stChatInput, .stSelectbox {
+  font-family: Georgia, 'Times New Roman', serif;
 }
 
 /* Column divider */
@@ -44,6 +44,7 @@ CSS = """
 /* Card styling */
 .stContainer, [data-testid="stVerticalBlock"] {
   border: 1px solid var(--card-border);
+  border-radius: 0;
   background: var(--surface);
 }
 
