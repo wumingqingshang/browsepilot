@@ -447,7 +447,7 @@ with right_col:
     if st.session_state.current_screenshot:
         try:
             img_data = base64.b64decode(st.session_state.current_screenshot)
-            st.image(BytesIO(img_data), use_container_width=True)
+            st.image(BytesIO(img_data), width="stretch")
         except Exception:
             st.markdown(
                 '<div style="border:1px dashed #e8e0d4;padding:20px;text-align:center;'
@@ -492,7 +492,7 @@ with right_col:
                                         st.image(
                                             f.read(),
                                             caption=s["step"],
-                                            use_container_width=True,
+                                            width="stretch",
                                         )
                                 except FileNotFoundError:
                                     st.caption("(截图文件不存在)")
