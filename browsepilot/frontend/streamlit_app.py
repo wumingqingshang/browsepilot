@@ -218,7 +218,17 @@ with left_col:
     if task:
         # Add user message immediately
         st.session_state.messages.append({"role": "user", "content": task})
+        # Reset all task-specific state for the new task
         st.session_state.plan_steps = []
+        st.session_state.current_step = ""
+        st.session_state.current_screenshot = None
+        st.session_state.token_count = 0
+        st.session_state.prompt_tokens = 0
+        st.session_state.completion_tokens = 0
+        st.session_state.thinking_phase = None
+        st.session_state.thinking_message = ""
+        st.session_state.current_step_index = 0
+        st.session_state.total_steps = 0
 
         # Show assistant bubble with real-time progress
         with st.chat_message("assistant"):
@@ -265,8 +275,16 @@ with left_col:
                             total_steps = event["data"].get("total_steps", 0)
                             st.session_state.thinking_phase = phase
                             st.session_state.thinking_message = message
-                            st.session_state.current_step_index = step_index
-                            st.session_state.total_steps = total_steps or len(st.session_state.plan_steps)
+                            if step_index:
+                                st.session_state.current_step_index = step_index
+                            if total_steps:
+                                st.session_state.total_steps = total_steps
+                            # Render phase indicator for non-executing phases (executing handled by step_start/step_end)
+                            if phase in ("planning", "reflecting", "replanning", "answering"):
+                                progress_placeholder.markdown(
+                                    _phase_html(phase, message),
+                                    unsafe_allow_html=True,
+                                )
 
                         elif event_type == "plan_generated":
                             steps = event["data"].get("steps", [])
@@ -282,6 +300,8 @@ with left_col:
                         elif event_type == "step_start":
                             step = event["data"].get("step", "")
                             st.session_state.current_step = step
+                            if step_index := event["data"].get("step_index"):
+                                st.session_state.current_step_index = step_index + 1  # 0-based to 1-based
                             idx = st.session_state.current_step_index
                             total = st.session_state.total_steps
                             progress_placeholder.markdown(
@@ -295,7 +315,6 @@ with left_col:
                                 st.session_state.current_screenshot = b64
 
                         elif event_type == "step_end":
-                            step_count += 1
                             result = event["data"].get("result", {})
                             if isinstance(result, dict) and result.get("status") == "error":
                                 progress_placeholder.markdown(
@@ -304,9 +323,10 @@ with left_col:
                                     unsafe_allow_html=True,
                                 )
                             else:
+                                step_count += 1
                                 progress_placeholder.markdown(
                                     _phase_html("executing", f"已完成 {step_count} 个步骤", step_count, len(st.session_state.plan_steps))
-                                    + _progress_bar_html(step_count, len(st.session_state.plan_steps)),
+                                    + _progress_bar_html(step_count + 1, len(st.session_state.plan_steps)),
                                     unsafe_allow_html=True,
                                 )
 
@@ -317,6 +337,13 @@ with left_col:
                                     _phase_html("replanning", "调整执行策略..."),
                                     unsafe_allow_html=True,
                                 )
+
+                        elif event_type == "replan":
+                            new_steps = event["data"].get("new_steps", [])
+                            if new_steps:
+                                st.session_state.plan_steps = new_steps
+                                st.session_state.total_steps = len(new_steps)
+                                st.session_state.current_step_index = 0
 
                         elif event_type == "token_update":
                             prompt = event["data"].get("prompt", 0)
@@ -329,6 +356,9 @@ with left_col:
                             answer_content = event["data"].get("content", "")
                             total = event["data"].get("total_tokens", 0)
                             st.session_state.token_count = total
+                            st.session_state.prompt_tokens = 0
+                            st.session_state.completion_tokens = 0
+                            st.session_state.thinking_phase = None
                             progress_placeholder.empty()
                             st.write(answer_content)
                             st.session_state.messages.append({"role": "assistant", "content": answer_content})
