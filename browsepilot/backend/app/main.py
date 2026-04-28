@@ -80,6 +80,7 @@ async def chat_stream(request: Request):
             async for event in graph.astream(initial_state, {"recursion_limit": 30}):
                 for node_name, node_output in event.items():
                     if node_name == "plan":
+                        yield SSEData.thinking_status("planning", "正在分析任务并制定执行计划...")
                         steps = node_output.get("plan", [])
                         tokens = node_output.get("token_usage", {})
                         yield SSEData.plan_generated(steps, tokens)
@@ -88,6 +89,12 @@ async def chat_stream(request: Request):
                         if node_output.get("execution_log"):
                             last_log = node_output["execution_log"][-1]
                             step_index = len(node_output["execution_log"]) - 1
+                            yield SSEData.thinking_status(
+                                "executing",
+                                f"正在执行: {last_log['step']}",
+                                step_index + 1,
+                                0,
+                            )
                             yield SSEData.step_start(last_log["step"], step_index)
                             result = last_log.get("result", {})
                             if isinstance(result, dict) and result.get("screenshot_base64"):
@@ -98,13 +105,16 @@ async def chat_stream(request: Request):
                             yield SSEData.step_end(last_log["step"], result)
 
                     elif node_name == "reflect":
+                        yield SSEData.thinking_status("reflecting", "正在反思执行结果...")
                         decision = "replan" if node_output.get("need_replan") else "success"
                         yield SSEData.reflection(decision, "")
 
                     elif node_name == "replan":
+                        yield SSEData.thinking_status("replanning", "正在重新规划替代方案...")
                         yield SSEData.replan(node_output.get("plan", []))
 
                     elif node_name == "answer":
+                        yield SSEData.thinking_status("answering", "正在生成最终回答...")
                         final = node_output.get("final_answer", "")
                         tokens = node_output.get("token_usage", {})
                         total = tokens.get("prompt", 0) + tokens.get("completion", 0)
