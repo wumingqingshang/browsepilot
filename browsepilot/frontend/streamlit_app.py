@@ -14,8 +14,6 @@ st.set_page_config(page_title="BrowsePilot", layout="wide")
 CSS = """
 <style>
 /* === Swiss Editorial Design Tokens === */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap');
-
 :root {
   --bg: #faf9f6;
   --surface: #fefdfb;
