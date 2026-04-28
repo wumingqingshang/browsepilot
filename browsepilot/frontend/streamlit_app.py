@@ -160,6 +160,44 @@ if "current_step_index" not in st.session_state:
 if "total_steps" not in st.session_state:
     st.session_state.total_steps = 0
 
+# ---- Phase Display Helpers ----
+
+PHASE_LABELS = {
+    "planning": "正在思考",
+    "executing": "执行中",
+    "reflecting": "正在检查",
+    "replanning": "正在调整计划",
+    "answering": "生成回答",
+}
+
+
+def _phase_html(phase: str, message: str, step_index: int = 0, total_steps: int = 0) -> str:
+    """Build the HTML for a phase status indicator."""
+    label = PHASE_LABELS.get(phase, phase)
+    if phase == "executing" and total_steps:
+        label = f"执行中 — 步骤 {step_index}/{total_steps}"
+    return (
+        f'<div class="phase-label">{label}'
+        f'<span class="thinking-dot"></span></div>'
+        f'<div style="font-family:Georgia,serif;color:#4a4238;font-size:14px">{message}</div>'
+    )
+
+
+def _progress_bar_html(current: int, total: int) -> str:
+    """Build HTML for the step progress bar (M segments)."""
+    if not total:
+        return ""
+    segments = []
+    for i in range(total):
+        if i < current - 1:
+            cls = "done"
+        elif i == current - 1:
+            cls = "active"
+        else:
+            cls = ""
+        segments.append(f'<div class="progress-segment {cls}"></div>')
+    return f'<div class="progress-bar">{"".join(segments)}</div>'
+
 # ---- Layout ----
 left_col, right_col = st.columns([7, 3])
 
@@ -234,12 +272,20 @@ with left_col:
                             st.session_state.current_step = steps[0] if steps else ""
                             st.session_state.total_steps = len(steps)
                             st.session_state.thinking_phase = "executing"
-                            progress_placeholder.info(f"📋 已生成 {len(steps)} 步执行计划...")
+                            progress_placeholder.markdown(
+                                _phase_html("planning", f"已制定 {len(steps)} 步执行计划") + _progress_bar_html(0, len(steps)),
+                                unsafe_allow_html=True,
+                            )
 
                         elif event_type == "step_start":
                             step = event["data"].get("step", "")
                             st.session_state.current_step = step
-                            progress_placeholder.info(f"🔄 {step}")
+                            idx = st.session_state.current_step_index
+                            total = st.session_state.total_steps
+                            progress_placeholder.markdown(
+                                _phase_html("executing", step, idx, total) + _progress_bar_html(idx, total),
+                                unsafe_allow_html=True,
+                            )
 
                         elif event_type == "screenshot":
                             b64 = event["data"].get("base64", "")
@@ -250,14 +296,25 @@ with left_col:
                             step_count += 1
                             result = event["data"].get("result", {})
                             if isinstance(result, dict) and result.get("status") == "error":
-                                progress_placeholder.warning(f"⚠️ 步骤失败，正在重试...")
+                                progress_placeholder.markdown(
+                                    f'<div class="phase-label" style="color:#e33e2b">重试中<span class="thinking-dot"></span></div>'
+                                    f'<div style="font-family:Georgia,serif;color:#e33e2b;font-size:14px">⚠️ 步骤失败，正在重试...</div>',
+                                    unsafe_allow_html=True,
+                                )
                             else:
-                                progress_placeholder.info(f"✅ 已完成 {step_count} 个步骤...")
+                                progress_placeholder.markdown(
+                                    _phase_html("executing", f"已完成 {step_count} 个步骤", step_count, len(st.session_state.plan_steps))
+                                    + _progress_bar_html(step_count, len(st.session_state.plan_steps)),
+                                    unsafe_allow_html=True,
+                                )
 
                         elif event_type == "reflection":
                             decision = event["data"].get("decision", "")
                             if decision == "replan":
-                                progress_placeholder.warning("🔄 正在重新规划...")
+                                progress_placeholder.markdown(
+                                    _phase_html("replanning", "调整执行策略..."),
+                                    unsafe_allow_html=True,
+                                )
 
                         elif event_type == "token_update":
                             prompt = event["data"].get("prompt", 0)
