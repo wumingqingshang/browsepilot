@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from sse_starlette.sse import EventSourceResponse
+from starlette.responses import StreamingResponse
 from loguru import logger
 import sys
 
@@ -61,7 +61,7 @@ async def chat_stream(request: Request):
     mcp_client = MCPClient(settings.mcp_server_url)
 
     async def event_generator():
-        final_state = {}
+        accumulated_state = {}
         try:
             await mcp_client.connect()
             graph = build_graph(mcp_client)
@@ -77,8 +77,11 @@ async def chat_stream(request: Request):
                 "token_usage": {"prompt": 0, "completion": 0},
             }
 
+            accumulated_state = dict(initial_state)
+
             async for event in graph.astream(initial_state, {"recursion_limit": 30}):
                 for node_name, node_output in event.items():
+                    accumulated_state.update(node_output)
                     if node_name == "plan":
                         yield SSEData.thinking_status("planning", "正在分析任务并制定执行计划...")
                         steps = node_output.get("plan", [])
@@ -119,7 +122,6 @@ async def chat_stream(request: Request):
                         tokens = node_output.get("token_usage", {})
                         total = tokens.get("prompt", 0) + tokens.get("completion", 0)
                         yield SSEData.final_answer(final, total)
-                        final_state = node_output
 
                     # Token updates from any node
                     if node_output.get("token_usage"):
@@ -128,12 +130,12 @@ async def chat_stream(request: Request):
                             tu.get("prompt", 0), tu.get("completion", 0)
                         )
 
-            # Persist session
-            if final_state:
+            # Persist session using accumulated state (has execution_log + final_answer)
+            if accumulated_state:
                 session_manager.update(session_id,
-                    execution_log=final_state.get("execution_log", []),
-                    final_answer=final_state.get("final_answer", ""),
-                    token_usage=final_state.get("token_usage", {}),
+                    execution_log=accumulated_state.get("execution_log", []),
+                    final_answer=accumulated_state.get("final_answer", ""),
+                    token_usage=accumulated_state.get("token_usage", {}),
                 )
             session_manager.persist(session_id)
 
@@ -150,7 +152,19 @@ async def chat_stream(request: Request):
             except Exception:
                 pass
 
-    return EventSourceResponse(event_generator())
+    async def sse_formatted_generator():
+        async for event in event_generator():
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        sse_formatted_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/history/{session_id}")

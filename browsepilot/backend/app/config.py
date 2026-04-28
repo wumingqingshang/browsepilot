@@ -1,5 +1,7 @@
 """Application configuration via pydantic-settings."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 
@@ -8,7 +10,7 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     llm_vision_enabled: bool = False
-    mcp_server_url: str = "http://localhost:8090"
+    mcp_server_url: str = "http://localhost:8090/sse"
     mcp_server_port: int = 8090
     mcp_mode: str = "sse"
     browser_headless: bool = True
@@ -19,7 +21,7 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = 60
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).resolve().parent.parent.parent / ".env")
 
 
 settings = Settings()

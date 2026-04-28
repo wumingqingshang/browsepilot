@@ -36,7 +36,7 @@ left_col, right_col = st.columns([7, 3])
 with left_col:
     st.subheader("对话")
 
-    # Render chat history
+    # Render chat history (rendered on each rerun)
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
@@ -45,78 +45,104 @@ with left_col:
     task = st.chat_input("输入你的浏览器操作指令，例如：打开百度搜索 LangChain MCP...")
 
     if task:
-        # Add user message
+        # Add user message immediately
         st.session_state.messages.append({"role": "user", "content": task})
         st.session_state.plan_steps = []
 
-        try:
-            resp = requests.post(
-                f"{api_url}/chat/stream",
-                json={"task": task},
-                stream=True,
-                timeout=120,
-            )
+        # Show assistant bubble with real-time progress
+        with st.chat_message("assistant"):
+            progress_placeholder = st.empty()
 
-            answer_text = ""
+            try:
+                resp = requests.post(
+                    f"{api_url}/chat/stream",
+                    json={"task": task},
+                    stream=True,
+                    timeout=120,
+                )
 
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                line = line.decode("utf-8")
-                if not line.startswith("data: "):
-                    continue
-                data_str = line[6:]
-                try:
-                    event = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
+                answer_content = ""
+                step_count = 0
 
-                event_type = event.get("event")
+                # Buffer for collecting SSE data chunks
+                buffer = ""
+                for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
+                    if not chunk:
+                        continue
+                    buffer += chunk
+                    while "\n\n" in buffer:
+                        event_str, buffer = buffer.split("\n\n", 1)
+                        lines = event_str.strip().split("\n")
+                        data_line = ""
+                        for line in lines:
+                            if line.startswith("data: "):
+                                data_line = line[6:]
+                                break
+                        if not data_line:
+                            continue
+                        try:
+                            event = json.loads(data_line)
+                        except json.JSONDecodeError:
+                            continue
 
-                if event_type == "plan_generated":
-                    steps = event["data"].get("steps", [])
-                    st.session_state.plan_steps = steps
-                    st.session_state.current_step = steps[0] if steps else ""
+                        event_type = event.get("event")
 
-                elif event_type == "step_start":
-                    step = event["data"].get("step", "")
-                    st.session_state.current_step = step
+                        if event_type == "plan_generated":
+                            steps = event["data"].get("steps", [])
+                            st.session_state.plan_steps = steps
+                            st.session_state.current_step = steps[0] if steps else ""
+                            progress_placeholder.info(f"📋 已生成 {len(steps)} 步执行计划...")
 
-                elif event_type == "screenshot":
-                    b64 = event["data"].get("base64", "")
-                    if b64:
-                        st.session_state.current_screenshot = b64
+                        elif event_type == "step_start":
+                            step = event["data"].get("step", "")
+                            st.session_state.current_step = step
+                            progress_placeholder.info(f"🔄 {step}")
 
-                elif event_type == "step_end":
-                    pass  # Handled by screenshot display
+                        elif event_type == "screenshot":
+                            b64 = event["data"].get("base64", "")
+                            if b64:
+                                st.session_state.current_screenshot = b64
 
-                elif event_type == "reflection":
-                    pass  # Status shown in monitoring panel
+                        elif event_type == "step_end":
+                            step_count += 1
+                            result = event["data"].get("result", {})
+                            if isinstance(result, dict) and result.get("status") == "error":
+                                progress_placeholder.warning(f"⚠️ 步骤失败，正在重试...")
+                            else:
+                                progress_placeholder.info(f"✅ 已完成 {step_count} 个步骤...")
 
-                elif event_type == "token_update":
-                    prompt = event["data"].get("prompt", 0)
-                    completion = event["data"].get("completion", 0)
-                    st.session_state.token_count = prompt + completion
+                        elif event_type == "reflection":
+                            decision = event["data"].get("decision", "")
+                            if decision == "replan":
+                                progress_placeholder.warning("🔄 正在重新规划...")
 
-                elif event_type == "final_answer":
-                    content = event["data"].get("content", "")
-                    total = event["data"].get("total_tokens", 0)
-                    answer_text = content
-                    st.session_state.messages.append({"role": "assistant", "content": content})
-                    st.session_state.token_count = total
+                        elif event_type == "token_update":
+                            prompt = event["data"].get("prompt", 0)
+                            completion = event["data"].get("completion", 0)
+                            st.session_state.token_count = prompt + completion
 
-                elif event_type == "error":
-                    error_msg = event["data"].get("message", "Unknown error")
-                    st.session_state.messages.append({"role": "assistant", "content": f"❌ 错误: {error_msg}"})
+                        elif event_type == "final_answer":
+                            answer_content = event["data"].get("content", "")
+                            total = event["data"].get("total_tokens", 0)
+                            st.session_state.token_count = total
+                            progress_placeholder.empty()
+                            st.write(answer_content)
+                            st.session_state.messages.append({"role": "assistant", "content": answer_content})
 
-            # Rerun to refresh chat display
-            if answer_text:
-                st.rerun()
+                        elif event_type == "error":
+                            error_msg = event["data"].get("message", "Unknown error")
+                            progress_placeholder.empty()
+                            st.error(f"❌ 错误: {error_msg}")
+                            answer_content = f"❌ 错误: {error_msg}"
 
-        except requests.exceptions.ConnectionError:
-            st.error(f"无法连接到后端 {api_url}，请确认后端已启动")
-        except Exception as e:
-            st.error(f"请求失败: {str(e)}")
+                # If no final_answer received, show warning
+                if not answer_content:
+                    progress_placeholder.warning("任务执行完成，但未获取到回答内容")
+
+            except requests.exceptions.ConnectionError:
+                st.error(f"无法连接到后端 {api_url}，请确认后端已启动")
+            except Exception as e:
+                st.error(f"请求失败: {str(e)}")
 
 
 # ===== RIGHT PANEL: Monitoring =====

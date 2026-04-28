@@ -36,9 +36,16 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
     system_prompt = f"""你是一个浏览器自动化规划专家。你可以使用以下工具：
 {tools_desc}
 
+重要：get_page_structure 工具可以提取页面上所有输入框、按钮、链接及其 CSS 选择器，在执行任何点击或输入操作前，必须先用它获取选择器。
+
 请根据用户任务，生成一个JSON格式的执行步骤列表。每个步骤是一个自然语言描述的简单操作。
-格式示例：["导航到 https://github.com", "搜索仓库 langchain-ai/langgraph", "提取 Star 数量", "回答用户"]
-只返回JSON数组，不要包含其他内容。步骤要具体、可执行，避免模糊描述。"""
+规则：
+1. 导航到页面后，始终先获取页面结构（get_page_structure）找到目标元素的精确选择器
+2. 根据页面结构中的实际选择器执行操作
+3. 不要猜测选择器（如 input[type='text']），应从页面结构中获取
+
+格式示例：["导航到 https://github.com", "获取页面结构，找到搜索框的选择器", "在找到的搜索框中输入关键字", "获取页面结构，找到搜索按钮的选择器", "点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
+只返回JSON数组，不要包含其他内容。步骤要具体、可执行。"""
 
     response = await llm.ainvoke([
         SystemMessage(content=system_prompt),
@@ -80,26 +87,72 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
     logger.info("[execute_node] Executing step: {}", current_step)
 
     llm = get_llm()
-    llm_with_tools = llm.bind_tools(langchain_tools)
 
-    tool_selection_prompt = f"""你是一个浏览器操作执行器。当前需要执行的步骤是："{current_step}"
+    # Build tool descriptions for LLM tool selection
+    tools_desc = "\n".join(
+        f"- {t.name}: {t.description}"
+        for t in langchain_tools
+    )
 
-请选择一个工具并调用它。如果这个步骤不需要浏览器工具操作（例如已经是分析或答复类的步骤），请不要调用工具。"""
+    # Build context from recent execution results (especially get_page_structure output)
+    recent_context = ""
+    for i, entry in enumerate(state["execution_log"]):
+        result = entry.get("result", {})
+        if isinstance(result, dict) and result.get("structure"):
+            # Found page structure — extract selectors for the LLM
+            s = result["structure"]
+            recent_context += f"\n页面可用元素（来自之前的get_page_structure）：\n"
+            if s.get("inputs"):
+                recent_context += "输入框: " + json.dumps(s["inputs"][:10], ensure_ascii=False) + "\n"
+            if s.get("buttons"):
+                recent_context += "按钮: " + json.dumps(s["buttons"][:10], ensure_ascii=False) + "\n"
+            if s.get("links"):
+                recent_context += "链接: " + json.dumps(s["links"][:5], ensure_ascii=False) + "\n"
+        elif isinstance(result, dict) and result.get("content"):
+            recent_context += f"\n页面文本摘要（前500字）：{result['content'][:500]}\n"
 
-    response = await llm_with_tools.ainvoke([
+    tool_selection_prompt = (
+        '你是一个浏览器操作执行器。当前需要执行的步骤是："' + current_step + '"\n\n'
+        "可用工具：\n" + tools_desc + "\n\n"
+        + recent_context + "\n"
+        '关键规则（必须遵守，违反会导致任务失败）：\n'
+        '1. 如果上方提供了"页面可用元素"，你必须从其中选择一个匹配的 selector，完全照抄，不得修改\n'
+        '2. 例如：如果结构中有 {"selector": "#kw", "tag": "input", "type": "text"}，输入步骤必须用 "#kw"\n'
+        '3. 绝对禁止使用自己编造的选择器（如 #chat-textarea、#chat-submit-button、input[type="text"]）\n'
+        '4. 如果还没有页面结构信息，先调用 get_page_structure 获取\n'
+        '5. get_content 返回页面文本，可用于理解页面内容\n\n'
+        '请用JSON格式返回要调用的工具和参数：\n'
+        '{"tool": "工具名", "arguments": {"参数名": "参数值"}}\n'
+        '如果这个步骤不需要浏览器工具（例如等待、思考、分析类步骤），返回：{"tool": "none", "arguments": {}}\n'
+        "只返回JSON对象，不要其他内容。"
+    )
+
+    response = await llm.ainvoke([
         SystemMessage(content=tool_selection_prompt),
         HumanMessage(content=current_step),
     ])
 
-    tool_calls = response.tool_calls if hasattr(response, "tool_calls") and response.tool_calls else []
-
     result = {}
     tool_used = "none"
-    if tool_calls:
-        tc = tool_calls[0]
-        tool_used = tc["name"]
-        arguments = tc["args"]
-        result = await mcp_client.call_tool(tool_used, arguments)
+
+    try:
+        content = response.content.strip()
+        if "```" in content:
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        tool_selection = json.loads(content)
+
+        if tool_selection.get("tool") and tool_selection["tool"] != "none":
+            tool_used = tool_selection["tool"]
+            arguments = tool_selection.get("arguments", {})
+            logger.info("[execute_node] Calling tool {} with args {}", tool_used, arguments)
+            result = await mcp_client.call_tool(tool_used, arguments)
+        else:
+            result = {"status": "skipped", "reason": "no_tool_needed"}
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning("[execute_node] Tool selection failed: {}", e)
+        result = {"status": "error", "error": f"tool_selection_failed: {str(e)}"}
 
     # Save screenshot if available
     screenshot_path = ""
@@ -240,23 +293,56 @@ async def replan_node(state: AgentState, mcp_client) -> dict:
 
 
 async def answer_node(state: AgentState) -> dict:
-    """Generate the final natural language answer."""
+    """Generate the final natural language answer based on extracted page content."""
     logger.info("[answer_node] Generating final answer")
     llm = get_llm()
 
-    summary = "\n".join(
-        f"- {e['step']}: {'成功' if e.get('result', {}).get('status') == 'success' else '失败 — ' + str(e.get('result', {}).get('error', 'unknown'))}"
-        for e in state["execution_log"]
-    )
+    # Collect actual page content from execution log (get_content results)
+    page_contents = []
+    step_summaries = []
+    for e in state["execution_log"]:
+        step_info = f"- {e['step']}: "
+        result = e.get("result", {})
+        if isinstance(result, dict) and result.get("status") == "success":
+            step_info += "成功"
+            if result.get("content"):
+                content = result["content"]
+                page_contents.append({"step": e["step"], "content": content})
+                step_info += f"，提取到 {len(content)} 字内容"
+            elif result.get("structure"):
+                s = result["structure"]
+                inputs_count = len(s.get("inputs", []))
+                buttons_count = len(s.get("buttons", []))
+                step_info += f"，发现 {inputs_count} 个输入框、{buttons_count} 个按钮"
+        elif isinstance(result, dict) and result.get("status") == "error":
+            err = result.get("error", "unknown")
+            step_info += f"失败 — {err}"
+        else:
+            step_info += "完成"
+        step_summaries.append(step_info)
 
-    answer_prompt = f"""你是一个智能浏览器助手。请根据以下执行记录回答用户问题。
+    # Build context with actual page content
+    content_section = ""
+    if page_contents:
+        content_section = "\n\n实际提取的网页内容：\n"
+        for pc in page_contents:
+            content_section += f"\n--- 来自步骤 '{pc['step']}' ---\n{pc['content'][:3000]}\n"
+
+    answer_prompt = f"""你是一个智能浏览器助手，请根据以下执行记录和实际提取的网页内容，回答用户问题。
 
 用户任务：{state['task']}
 
-执行记录：
-{summary}
+执行过程：
+{chr(10).join(step_summaries)}
+{content_section}
 
-请用自然语言简洁地回答用户，基于实际执行结果。如果部分步骤失败，如实说明。"""
+要求：
+1. 基于实际提取的网页内容回答用户，直接给出用户想要的信息
+2. 如果内容是搜索结果/天气/新闻等，提取关键信息并整理成易读的格式
+3. 如果适合，可以提供相关建议（如出行建议、注意事项等）
+4. 用自然语言，简洁但完整，不要只列出步骤
+5. 如果关键步骤失败导致无法获取信息，如实说明并给出替代建议
+6. 不要提及“步骤X”、执行过程等技术细节，直接给用户自然回答"""
 
     response = await llm.ainvoke([HumanMessage(content=answer_prompt)])
     final_answer = response.content.strip()
