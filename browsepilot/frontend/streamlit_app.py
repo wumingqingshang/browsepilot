@@ -132,6 +132,15 @@ html, body, [data-testid="stApp"] {
   background: var(--surface);
 }
 
+/* Right panel: direct child vertical blocks get card styling */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+  border: 1px solid var(--card-border);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
 /* Chat messages — transparent background */
 [data-testid="stChatMessage"] {
   background: transparent !important;
@@ -297,6 +306,14 @@ with left_col:
     # Scrollable chat messages container (creates nested stVerticalBlock for CSS targeting)
     chat_area = st.container()
     with chat_area:
+        if not st.session_state.messages:
+            st.markdown(
+                '<div style="display:flex;align-items:center;justify-content:center;'
+                'height:100%;min-height:200px;font-family:Georgia,serif;'
+                'color:#c4b5a5;font-size:14px;font-style:italic">'
+                '输入指令，开始浏览器自动化任务</div>',
+                unsafe_allow_html=True,
+            )
         for msg in st.session_state.messages:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
