@@ -88,9 +88,10 @@ html, body, [data-testid="stApp"] {
   min-height: 0;
 }
 
-/* Chat input wrapper: stays at bottom */
+/* Chat input wrapper: pushed to bottom by margin-top: auto */
 [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
   flex-shrink: 0;
+  margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
