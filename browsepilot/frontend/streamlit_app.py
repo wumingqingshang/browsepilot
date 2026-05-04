@@ -66,21 +66,28 @@ html, body, [data-testid="stApp"] {
 }
 
 /* === Left Column: Chat === */
-/* Inner vertical block scrolls (chat messages), input stays at bottom */
+/* Inner vertical block: flex column, fills column height */
 [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
   display: flex;
   flex-direction: column;
+  min-height: 100%;
+  overflow-y: auto;
 }
 
-/* Chat input sticks to bottom */
+/* Chat input wrapper: stick to bottom */
+[data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  margin-top: auto;
+  z-index: 1;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* Chat input itself */
 [data-testid="stChatInput"] {
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: auto;
 }
 
 /* === Right Column: Monitoring Panel === */
