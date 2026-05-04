@@ -72,6 +72,12 @@ html, body, [data-testid="stApp"] {
   overflow: hidden;
 }
 
+/* Direct child vertical blocks of columns: flex column to pass height down */
+[data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Nested horizontal block is our st.columns([7,3]) — target its direct column children */
 
 /* Our left column (chat): outer vertical block */
