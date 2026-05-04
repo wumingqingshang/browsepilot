@@ -74,21 +74,23 @@ html, body, [data-testid="stApp"] {
 
 /* Nested horizontal block is our st.columns([7,3]) — target its direct column children */
 
-/* Our left column (chat): first column in the nested horizontal block */
+/* Our left column (chat): outer vertical block */
 [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  overflow-y: auto;
+  height: 100%;
 }
 
-/* Chat input wrapper: stick to bottom of scroll area */
+/* Messages container (nested stVerticalBlock from st.container): flex-grow, scrollable */
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Chat input wrapper: stays at bottom */
 [data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
-  position: sticky;
-  bottom: 0;
-  background: var(--bg);
-  margin-top: auto;
-  z-index: 1;
+  flex-shrink: 0;
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
@@ -284,10 +286,12 @@ left_col, right_col = st.columns([7, 3])
 
 # ===== LEFT PANEL: Chat =====
 with left_col:
-    # Render chat history (rendered on each rerun)
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
+    # Scrollable chat messages container (creates nested stVerticalBlock for CSS targeting)
+    chat_area = st.container()
+    with chat_area:
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
 
     # Chat input
     task = st.chat_input("输入你的浏览器操作指令，例如：打开百度搜索 LangChain MCP...")
