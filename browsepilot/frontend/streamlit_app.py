@@ -30,6 +30,7 @@ CSS = """
 html, body, .stApp {
   height: 100vh;
   overflow: hidden;
+  background-color: var(--bg);
 }
 
 section.main {
@@ -84,6 +85,8 @@ section.main > .block-container {
 /* === Right Column: Monitoring Panel === */
 [data-testid="column"]:last-child {
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--card-border) transparent;
 }
 
 /* === Typography === */
