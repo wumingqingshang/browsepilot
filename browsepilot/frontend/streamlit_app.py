@@ -26,14 +26,37 @@ CSS = """
   --accent: #e33e2b;
 }
 
-/* Page background */
-.stApp, section.main, .main .block-container {
-  background-color: var(--bg);
+/* === Viewport Lock === */
+html, body, .stApp {
+  height: 100vh;
+  overflow: hidden;
 }
 
-/* Typography */
-.stApp, .stMarkdown, .stChatMessage, .stChatInput, .stSelectbox {
-  font-family: Georgia, 'Times New Roman', serif;
+section.main {
+  height: 100vh;
+  overflow: hidden;
+}
+
+section.main > .block-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+/* Horizontal block fills available height */
+[data-testid="stHorizontalBlock"] {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Columns are flex columns, no page-level overflow */
+[data-testid="column"] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Column divider */
@@ -41,21 +64,43 @@ CSS = """
   border-left: 1px solid var(--border);
 }
 
-/* Card styling */
+/* === Left Column: Chat === */
+/* Inner vertical block scrolls (chat messages), input stays at bottom */
+[data-testid="column"]:first-child > div[data-testid="stVerticalBlock"] {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Chat input sticks to bottom */
+[data-testid="stChatInput"] {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+/* === Right Column: Monitoring Panel === */
+[data-testid="column"]:last-child {
+  overflow-y: auto;
+}
+
+/* === Typography === */
+.stApp, .stMarkdown, .stChatMessage, .stChatInput, .stSelectbox {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+/* === Card styling === */
 .stContainer, [data-testid="stVerticalBlock"] {
   border: 1px solid var(--card-border);
   border-radius: 0;
   background: var(--surface);
 }
 
-/* Chat messages */
+/* Chat messages — transparent background */
 [data-testid="stChatMessage"] {
   background: transparent !important;
-}
-
-/* Input underline */
-[data-testid="stChatInput"] {
-  border-top: 1px solid var(--border);
 }
 
 /* Selectbox */
@@ -71,10 +116,9 @@ CSS = """
   border-right: 1px solid var(--border);
 }
 
-/* Sidebar cleanup — hide default sidebar nav */
 [data-testid="stSidebarNav"] { display: none; }
 
-/* Animations */
+/* === Animations === */
 @keyframes fadeInOut {
   0%, 100% { opacity: 0.3; }
   50% { opacity: 1; }
@@ -119,6 +163,15 @@ CSS = """
 .plan-step.done { color: var(--text-disabled); text-decoration: line-through; }
 .plan-step.current { color: var(--accent); font-weight: 600; font-style: italic; border-left: 2px solid var(--accent); padding-left: 8px; }
 .plan-step.pending { color: var(--text-muted); }
+
+/* === Right Column: Scrollbar === */
+[data-testid="column"]:last-child::-webkit-scrollbar {
+  width: 4px;
+}
+[data-testid="column"]:last-child::-webkit-scrollbar-thumb {
+  background: var(--card-border);
+  border-radius: 2px;
+}
 </style>
 """
 
