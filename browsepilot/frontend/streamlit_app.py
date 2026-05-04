@@ -125,7 +125,8 @@ html, body, [data-testid="stApp"] {
 }
 
 /* === Card styling === */
-.stContainer, [data-testid="stVerticalBlock"] {
+/* Only .stContainer uses card styling — not all vertical blocks */
+[data-testid="stMain"] .stContainer {
   border: 1px solid var(--card-border);
   border-radius: 0;
   background: var(--surface);
