@@ -81,21 +81,21 @@ html, body, [data-testid="stApp"] {
 /* Nested horizontal block is our st.columns([7,3]) — target its direct column children */
 
 /* Our left column (chat): outer vertical block */
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
 /* Messages container (nested stVerticalBlock from st.container): flex-grow, scrollable */
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
 }
 
 /* Chat input wrapper: pushed to bottom by margin-top: auto */
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
   flex-shrink: 0;
   margin-top: auto;
   padding-top: 8px;
@@ -108,14 +108,14 @@ html, body, [data-testid="stApp"] {
 
 /* === Right Column: Monitoring Panel === */
 /* Our right column: last column in the nested horizontal block */
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--card-border) transparent;
 }
 
 /* Column divider between our two columns */
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] + [data-testid="stColumn"] {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"] + [data-testid="stColumn"] {
   border-left: 1px solid var(--border);
 }
 
@@ -198,10 +198,10 @@ html, body, [data-testid="stApp"] {
 .plan-step.pending { color: var(--text-muted); }
 
 /* === Right Column: Scrollbar === */
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child::-webkit-scrollbar {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child::-webkit-scrollbar {
   width: 4px;
 }
-[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child::-webkit-scrollbar-thumb {
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child::-webkit-scrollbar-thumb {
   background: var(--card-border);
   border-radius: 2px;
 }
