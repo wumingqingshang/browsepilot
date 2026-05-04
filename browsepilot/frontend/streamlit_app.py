@@ -47,35 +47,43 @@ html, body, [data-testid="stApp"] {
   padding-bottom: 1rem;
 }
 
-/* Our columns horizontal block fills available height */
-[data-testid="stMainBlockContainer"] [data-testid="stHorizontalBlock"] {
+/* CSS injection block fills 0 height; stLayoutWrapper fills the rest */
+[data-testid="stLayoutWrapper"] {
   flex: 1;
   min-height: 0;
 }
 
-/* Columns are flex columns, no page-level overflow */
+/* All horizontal blocks in the main layout fill their parent */
+[data-testid="stLayoutWrapper"] [data-testid="stHorizontalBlock"] {
+  flex: 1;
+  min-height: 0;
+}
+
+/* All columns in nested horizontal blocks fill available height */
+[data-testid="stColumn"] [data-testid="stHorizontalBlock"] {
+  flex: 1;
+  min-height: 0;
+}
+
+/* All columns: flex column, no page-level overflow */
 [data-testid="stColumn"] {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
-/* Column divider */
-[data-testid="stColumn"] + [data-testid="stColumn"] {
-  border-left: 1px solid var(--border);
-}
+/* Nested horizontal block is our st.columns([7,3]) — target its direct column children */
 
-/* === Left Column: Chat === */
-/* Inner vertical block: flex column, fills column height */
-[data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
+/* Our left column (chat): first column in the nested horizontal block */
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
   display: flex;
   flex-direction: column;
   min-height: 100%;
   overflow-y: auto;
 }
 
-/* Chat input wrapper: stick to bottom */
-[data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+/* Chat input wrapper: stick to bottom of scroll area */
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
   position: sticky;
   bottom: 0;
   background: var(--bg);
@@ -85,16 +93,21 @@ html, body, [data-testid="stApp"] {
   border-top: 1px solid var(--border);
 }
 
-/* Chat input itself */
 [data-testid="stChatInput"] {
   flex-shrink: 0;
 }
 
 /* === Right Column: Monitoring Panel === */
-[data-testid="stColumn"]:last-child {
+/* Our right column: last column in the nested horizontal block */
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--card-border) transparent;
+}
+
+/* Column divider between our two columns */
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] + [data-testid="stColumn"] {
+  border-left: 1px solid var(--border);
 }
 
 /* === Typography === */
@@ -176,10 +189,10 @@ html, body, [data-testid="stApp"] {
 .plan-step.pending { color: var(--text-muted); }
 
 /* === Right Column: Scrollbar === */
-[data-testid="stColumn"]:last-child::-webkit-scrollbar {
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child::-webkit-scrollbar {
   width: 4px;
 }
-[data-testid="stColumn"]:last-child::-webkit-scrollbar-thumb {
+[data-testid="stHorizontalBlock"] [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child::-webkit-scrollbar-thumb {
   background: var(--card-border);
   border-radius: 2px;
 }
