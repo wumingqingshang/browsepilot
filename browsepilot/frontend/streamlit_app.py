@@ -27,18 +27,18 @@ CSS = """
 }
 
 /* === Viewport Lock === */
-html, body, .stApp {
+html, body, [data-testid="stApp"] {
   height: 100vh;
   overflow: hidden;
   background-color: var(--bg);
 }
 
-section.main {
+[data-testid="stMain"] {
   height: 100vh;
   overflow: hidden;
 }
 
-section.main > .block-container {
+[data-testid="stMain"] > [data-testid="stMainBlockContainer"] {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -47,27 +47,27 @@ section.main > .block-container {
   padding-bottom: 1rem;
 }
 
-/* Horizontal block fills available height */
-[data-testid="stHorizontalBlock"] {
+/* Our columns horizontal block fills available height */
+[data-testid="stMainBlockContainer"] [data-testid="stHorizontalBlock"] {
   flex: 1;
   min-height: 0;
 }
 
 /* Columns are flex columns, no page-level overflow */
-[data-testid="column"] {
+[data-testid="stColumn"] {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 /* Column divider */
-[data-testid="column"] + [data-testid="column"] {
+[data-testid="stColumn"] + [data-testid="stColumn"] {
   border-left: 1px solid var(--border);
 }
 
 /* === Left Column: Chat === */
 /* Inner vertical block scrolls (chat messages), input stays at bottom */
-[data-testid="column"]:first-child > div[data-testid="stVerticalBlock"] {
+[data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
@@ -80,10 +80,11 @@ section.main > .block-container {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
   padding-top: 8px;
+  margin-top: auto;
 }
 
 /* === Right Column: Monitoring Panel === */
-[data-testid="column"]:last-child {
+[data-testid="stColumn"]:last-child {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--card-border) transparent;
@@ -168,10 +169,10 @@ section.main > .block-container {
 .plan-step.pending { color: var(--text-muted); }
 
 /* === Right Column: Scrollbar === */
-[data-testid="column"]:last-child::-webkit-scrollbar {
+[data-testid="stColumn"]:last-child::-webkit-scrollbar {
   width: 4px;
 }
-[data-testid="column"]:last-child::-webkit-scrollbar-thumb {
+[data-testid="stColumn"]:last-child::-webkit-scrollbar-thumb {
   background: var(--card-border);
   border-radius: 2px;
 }
