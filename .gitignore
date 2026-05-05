@@ -25,6 +25,9 @@ venv/
 
 # Runtime data
 data/
+docs/
+BrowsePilot 需求规格说明书.md
+需要解决的问题.md
 
 # Worktrees
 .worktrees/
