@@ -101,11 +101,15 @@ html, body, [data-testid="stApp"] {
 }
 
 /* === Right Column: Monitoring Panel === */
-/* Our right column: last column in the nested horizontal block */
 [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--card-border) transparent;
+}
+
+/* Prevent vertical block from breaking overflow containment */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child > [data-testid="stVerticalBlock"] {
+  min-height: 0;
 }
 
 /* Column divider between our two columns */
