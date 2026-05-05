@@ -1,8 +1,17 @@
 <template>
-  <div class="flex h-screen bg-bg font-serif text-text-body">
-    <p class="m-auto text-text-muted italic">BrowsePilot — 加载中...</p>
+  <div class="flex h-screen bg-bg">
+    <Sidebar />
+    <div class="flex-1 min-w-0 grid grid-cols-[7fr_3fr]">
+      <ChatPanel />
+      <div class="border-l border-border">
+        <MonitorPanel />
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import Sidebar from './components/Sidebar.vue'
+import ChatPanel from './components/ChatPanel.vue'
+import MonitorPanel from './components/MonitorPanel.vue'
 </script>
