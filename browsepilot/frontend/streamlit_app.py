@@ -532,7 +532,7 @@ with right_col:
         completion_tokens = st.session_state.get("completion_tokens", 0)
         total_tokens = st.session_state.token_count or (prompt_tokens + completion_tokens)
         token_html = (
-            '<div style="font-family:Georgia,serif">'
+            '<div style="font-family:Georgia,serif;min-height:100px">'
             '<span style="font-size:15px;color:#a0988a;letter-spacing:2px;'
             'text-transform:uppercase;font-weight:700">Token</span>'
             '<div style="font-size:13px;line-height:2.2;color:#8b7f6e;margin-top:8px">'
