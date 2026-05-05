@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Element Plus 主题覆写 — Swiss Editorial */
+:root {
+  --el-font-family: Georgia, 'Times New Roman', serif;
+  --el-border-color: #e8e0d4;
+  --el-bg-color: #fefdfb;
+  --el-text-color-regular: #4a4238;
+  --el-text-color-secondary: #8b7f6e;
+  --el-border-radius-base: 0px;
+}
+
+/* 全局 */
+html, body, #app {
+  height: 100vh;
+  overflow: hidden;
+  background-color: #faf9f6;
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #4a4238;
+}
+
+/* 动画 */
+@keyframes fadeInOut {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.live-dot {
+  display: inline-block;
+  width: 5px; height: 5px;
+  background: #e33e2b;
+  border-radius: 50%;
+  animation: fadeInOut 1.5s ease-in-out infinite;
+}
+
+.thinking-dot {
+  display: inline-block;
+  width: 4px; height: 4px;
+  background: #e33e2b;
+  border-radius: 50%;
+  animation: fadeInOut 1s ease-in-out infinite;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+/* Phase label */
+.phase-label {
+  font-size: 10px;
+  color: #8b7f6e;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-family: Georgia, serif;
+}
+
+/* Progress bar */
+.progress-bar {
+  display: flex;
+  gap: 3px;
+  margin-top: 8px;
+}
+.progress-segment {
+  height: 3px;
+  flex: 1;
+  background: #e8e0d4;
+}
+.progress-segment.done {
+  background: #e33e2b;
+}
+.progress-segment.active {
+  background: #e33e2b;
+  animation: fadeInOut 1s ease-in-out infinite;
+}
+
+/* Plan step */
+.plan-step { line-height: 2; font-size: 12px; }
+.plan-step.done { color: #c4b5a5; text-decoration: line-through; }
+.plan-step.current {
+  color: #e33e2b;
+  font-weight: 600;
+  font-style: italic;
+  border-left: 2px solid #e33e2b;
+  padding-left: 8px;
+}
+.plan-step.pending { color: #8b7f6e; }
