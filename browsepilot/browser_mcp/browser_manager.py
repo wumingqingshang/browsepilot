@@ -7,9 +7,10 @@ from loguru import logger
 
 
 class BrowserManager:
-    def __init__(self, headless: bool = True, timeout: int = 15000):
+    def __init__(self, headless: bool = True, timeout: int = 15000, channel: str | None = None):
         self.headless = headless
         self.timeout = timeout
+        self.channel = channel
         self._playwright = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -18,12 +19,19 @@ class BrowserManager:
     async def start(self) -> Page:
         if self._playwright is not None:
             await self.stop()
-        logger.info("Starting browser instance (headless={})", self.headless)
+        logger.info("Starting browser instance (headless={}, channel={})", self.headless, self.channel or "default")
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(
-            headless=self.headless,
-            args=["--disable-notifications", "--disable-popup-blocking"],
-        )
+        args = ["--disable-notifications", "--disable-popup-blocking"]
+        # System browsers (Edge/Chrome via channel) don't support old headless mode
+        if self.channel and self.headless:
+            args.append("--headless=new")
+        launch_opts = {
+            "headless": self.headless if not self.channel else False,
+            "args": args,
+        }
+        if self.channel:
+            launch_opts["channel"] = self.channel
+        self._browser = await self._playwright.chromium.launch(**launch_opts)
         self._context = await self._browser.new_context()
         self._page = await self._context.new_page()
         self._page.set_default_timeout(self.timeout)
