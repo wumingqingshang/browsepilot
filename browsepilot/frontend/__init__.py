@@ -1,1 +1,0 @@
-"""BrowsePilot Streamlit frontend."""

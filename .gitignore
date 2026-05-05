@@ -18,6 +18,13 @@ venv/
 
 # Environment files with secrets
 .env
+.mcp.json
+
+# Claude Code local settings
+.claude/
+
+# Runtime data
+data/
 
 # Worktrees
 .worktrees/
