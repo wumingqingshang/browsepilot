@@ -89,7 +89,6 @@ html, body, [data-testid="stApp"] {
 [data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
   flex: 1;
   overflow-y: auto;
-  min-height: 0;
 }
 
 /* Chat input wrapper: pushed to bottom by margin-top: auto */
