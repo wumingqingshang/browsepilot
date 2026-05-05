@@ -5,9 +5,11 @@ import json
 import asyncio
 import re
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.responses import StreamingResponse
 from loguru import logger
 import sys
@@ -33,6 +35,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="BrowsePilot API", version="0.1.0", lifespan=lifespan)
+
+screenshots_dir = Path(settings.data_dir) / "screenshots"
+screenshots_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/screenshots", StaticFiles(directory=str(screenshots_dir)), name="screenshots")
 
 
 def filter_user_input(text: str) -> str:
