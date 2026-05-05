@@ -500,7 +500,7 @@ with right_col:
             current = st.session_state.current_step_index
             steps_html = '<div style="font-family:Georgia,serif">'
             steps_html += (
-                '<span style="font-size:13px;color:#a0988a;letter-spacing:2px;'
+                '<span style="font-size:15px;color:#a0988a;letter-spacing:2px;'
                 'text-transform:uppercase;font-weight:700">执行计划</span>'
             )
             steps_html += (
@@ -520,7 +520,7 @@ with right_col:
             st.markdown(steps_html, unsafe_allow_html=True)
         else:
             st.markdown(
-                '<span style="font-size:13px;color:#a0988a;letter-spacing:2px;'
+                '<span style="font-size:15px;color:#a0988a;letter-spacing:2px;'
                 'text-transform:uppercase;font-family:Georgia,serif;font-weight:700">执行计划</span>'
                 '<div style="color:#c4b5a5;font-size:12px;font-family:Georgia,serif;'
                 'font-style:italic;margin-top:8px">等待任务...</div>',
@@ -533,7 +533,7 @@ with right_col:
         total_tokens = st.session_state.token_count or (prompt_tokens + completion_tokens)
         token_html = (
             '<div style="font-family:Georgia,serif">'
-            '<span style="font-size:13px;color:#a0988a;letter-spacing:2px;'
+            '<span style="font-size:15px;color:#a0988a;letter-spacing:2px;'
             'text-transform:uppercase;font-weight:700">Token</span>'
             '<div style="font-size:13px;line-height:2.2;color:#8b7f6e;margin-top:8px">'
             f'输入 <b style="color:#1a1a1a;font-size:14px">{prompt_tokens:,}</b><br>'
@@ -547,7 +547,7 @@ with right_col:
     # ---- Row 2: Screenshot ----
     screenshot_html = (
         '<div style="font-family:Georgia,serif;margin-top:4px">'
-        '<span style="font-size:13px;color:#a0988a;letter-spacing:2px;'
+        '<span style="font-size:15px;color:#a0988a;letter-spacing:2px;'
         'text-transform:uppercase;font-weight:700">实时截图</span>'
     )
     if st.session_state.thinking_phase == "executing":
@@ -577,7 +577,7 @@ with right_col:
     # ---- Row 3: Replay ----
     st.markdown("---")
     st.markdown(
-        '<span style="font-size:13px;color:#a0988a;letter-spacing:2px;'
+        '<span style="font-size:15px;color:#a0988a;letter-spacing:2px;'
         'text-transform:uppercase;font-family:Georgia,serif;font-weight:700">操作回放</span>',
         unsafe_allow_html=True,
     )
