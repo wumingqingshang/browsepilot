@@ -85,3 +85,60 @@ html, body, #app {
   padding-left: 8px;
 }
 .plan-step.pending { color: #8b7f6e; }
+
+/* Rendered Markdown */
+.message-content h1, .message-content h2, .message-content h3 {
+  font-family: Georgia, serif;
+  color: #1a1a1a;
+  margin: 0.75em 0 0.25em;
+  font-weight: 700;
+}
+.message-content h1 { font-size: 18px; }
+.message-content h2 { font-size: 16px; }
+.message-content h3 { font-size: 14px; }
+.message-content p { margin: 0.25em 0; }
+.message-content ul, .message-content ol { margin: 0.25em 0; padding-left: 1.5em; }
+.message-content li { margin: 0.125em 0; }
+.message-content code {
+  background: #f0ede6;
+  padding: 1px 4px;
+  font-size: 13px;
+  font-family: 'Consolas', monospace;
+}
+.message-content pre {
+  background: #f0ede6;
+  padding: 8px 12px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 0.5em 0;
+}
+.message-content pre code {
+  background: none;
+  padding: 0;
+}
+.message-content blockquote {
+  border-left: 2px solid #e8e0d4;
+  margin: 0.5em 0;
+  padding-left: 12px;
+  color: #8b7f6e;
+}
+.message-content a {
+  color: #e33e2b;
+  text-decoration: underline;
+}
+.message-content strong { color: #1a1a1a; }
+.message-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+  font-size: 13px;
+}
+.message-content th, .message-content td {
+  border: 1px solid #e8e0d4;
+  padding: 4px 8px;
+  text-align: left;
+}
+.message-content th {
+  background: #f0ede6;
+  font-weight: 600;
+}

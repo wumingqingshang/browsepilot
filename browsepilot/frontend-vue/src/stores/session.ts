@@ -1,6 +1,7 @@
 // frontend-vue/src/stores/session.ts
 import { defineStore } from 'pinia'
 import type { SessionSummary } from '@/types'
+import { useChatStore } from './chat'
 
 const API_BASE = '/api'
 
@@ -31,6 +32,22 @@ export const useSessionStore = defineStore('session', {
         if (resp.ok) {
           this.sessions = this.sessions.filter(s => s.id !== id)
         }
+      } catch {
+        // Silently ignore
+      }
+    },
+
+    async loadSessionHistory(sessionId: string) {
+      try {
+        const resp = await fetch(`${API_BASE}/history/${sessionId}`)
+        if (!resp.ok) return
+        const data = await resp.json()
+        const chatStore = useChatStore()
+        chatStore.viewHistory(
+          sessionId,
+          data.task || '',
+          data.final_answer || '',
+        )
       } catch {
         // Silently ignore
       }

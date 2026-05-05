@@ -37,7 +37,7 @@
             ? 'bg-surface border border-card-border'
             : 'hover:bg-surface',
         ]"
-        @click="sessionStore.fetchList()"
+        @click="onSelectSession(s.id)"
       >
         <div class="flex-1 min-w-0">
           <div
@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useChatStore } from '@/stores/chat'
 
@@ -86,12 +86,9 @@ onMounted(() => {
   sessionStore.fetchList()
 })
 
-// Refresh session list when sessionId changes
-watch(currentSessionId, () => {
-  if (currentSessionId.value) {
-    sessionStore.fetchList()
-  }
-})
+function onSelectSession(id: string) {
+  sessionStore.loadSessionHistory(id)
+}
 
 function onNewSession() {
   chatStore.reset()
@@ -100,6 +97,11 @@ function onNewSession() {
 }
 
 function onDelete(id: string) {
+  if (id === chatStore.sessionId) {
+    chatStore.reset()
+    chatStore.messages = []
+    chatStore.sessionId = null
+  }
   sessionStore.deleteSession(id)
 }
 </script>

@@ -70,7 +70,6 @@ export const useChatStore = defineStore('chat', {
           break
 
         case 'step_end':
-          // Progress update driven by thinking_status
           break
 
         case 'reflection':
@@ -111,6 +110,20 @@ export const useChatStore = defineStore('chat', {
 
     finishProcessing() {
       this.processing = false
+    },
+
+    viewHistory(sessionId: string, task: string, answer: string) {
+      this.sessionId = sessionId
+      this.messages = [
+        { role: 'user', content: task },
+        { role: 'assistant', content: answer },
+      ]
+      this.processing = false
+      this.phase = null
+      this.screenshot = null
+      this.planSteps = []
+      this.currentStepIndex = 0
+      this.totalSteps = 0
     },
   },
 })

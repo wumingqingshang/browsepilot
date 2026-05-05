@@ -1,3 +1,4 @@
+<!-- frontend-vue/src/components/ReplayPanel.vue -->
 <template>
   <div class="border-t border-border pt-3 mt-1">
     <div class="font-serif">
@@ -6,72 +7,75 @@
       </span>
     </div>
 
-    <div v-if="sessions.length === 0" class="text-text-disabled text-[12px] font-serif italic mt-2">
-      暂无历史会话
+    <div v-if="!currentSessionId" class="text-text-disabled text-[12px] font-serif italic mt-2">
+      点击左侧会话查看执行回放
     </div>
 
-    <template v-else>
-      <div class="mt-2 flex gap-2">
-        <el-select
-          v-model="selected"
-          size="small"
-          class="flex-1"
-          popper-class="replay-select-popper"
-        >
-          <el-option
-            v-for="s in sessions"
-            :key="s.id"
-            :label="`${s.id} — ${s.task_summary}`"
-            :value="s.id"
-          />
-        </el-select>
-        <el-button size="small" @click="loadReplay" :loading="loadingReplay">
-          查看回放
-        </el-button>
-      </div>
+    <div v-else-if="loadingReplay" class="text-text-muted text-[12px] font-serif mt-2">
+      加载中...
+    </div>
 
-      <div v-if="replaySteps.length > 0" class="mt-3 max-h-[40vh] overflow-y-auto space-y-3">
-        <div
-          v-for="step in replaySteps"
-          :key="step.step_index"
-          class="border border-card-border bg-surface p-2"
-        >
-          <div class="font-serif text-[12px] text-text-muted">
-            Step {{ step.step_index }}: {{ step.step }}
-          </div>
-          <div
-            v-if="step.result && Object.keys(step.result).length > 0"
-            class="font-serif text-[12px] text-text-body mt-1"
-          >
-            {{ typeof step.result === 'string' ? step.result : JSON.stringify(step.result) }}
-          </div>
-          <img
-            v-if="step.screenshot_path"
-            :src="getScreenshotUrl(step.screenshot_path)"
-            class="w-full mt-1 border border-card-border"
-          />
+    <div
+      v-else-if="replaySteps.length > 0"
+      class="mt-3 max-h-[40vh] overflow-y-auto space-y-3"
+    >
+      <div
+        v-for="step in replaySteps"
+        :key="step.step_index"
+        class="border border-card-border bg-surface p-2"
+      >
+        <div class="font-serif text-[12px] text-text-muted">
+          Step {{ step.step_index }}: {{ step.step }}
         </div>
+        <div
+          v-if="step.result && Object.keys(step.result).length > 0"
+          class="font-serif text-[12px] text-text-body mt-1"
+        >
+          {{ formatResult(step.result) }}
+        </div>
+        <img
+          v-if="step.screenshot_path"
+          :src="getScreenshotUrl(step.screenshot_path)"
+          class="w-full mt-1 border border-card-border"
+        />
       </div>
-    </template>
+    </div>
+
+    <div
+      v-else
+      class="text-text-muted text-[12px] font-serif mt-2"
+    >
+      该会话无回放数据
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useSessionStore } from '@/stores/session'
+import { ref, computed, watch } from 'vue'
+import { useChatStore } from '@/stores/chat'
 import { fetchReplay } from '@/api/chat'
 import type { ReplayStep } from '@/types'
 
-const sessionStore = useSessionStore()
-const selected = ref('')
+const chatStore = useChatStore()
 const replaySteps = ref<ReplayStep[]>([])
 const loadingReplay = ref(false)
 
-const sessions = computed(() => sessionStore.sessions)
+const currentSessionId = computed(() => chatStore.sessionId)
 
-onMounted(() => {
-  sessionStore.fetchList()
-})
+watch(currentSessionId, async (id) => {
+  if (!id) {
+    replaySteps.value = []
+    return
+  }
+  loadingReplay.value = true
+  try {
+    replaySteps.value = await fetchReplay(id)
+  } catch {
+    replaySteps.value = []
+  } finally {
+    loadingReplay.value = false
+  }
+}, { immediate: true })
 
 function getScreenshotUrl(path: string): string {
   if (!path) return ''
@@ -79,15 +83,12 @@ function getScreenshotUrl(path: string): string {
   return `/api/screenshots/${filename}`
 }
 
-async function loadReplay() {
-  if (!selected.value) return
-  loadingReplay.value = true
+function formatResult(result: Record<string, any>): string {
+  if (typeof result === 'string') return result
   try {
-    replaySteps.value = await fetchReplay(selected.value)
+    return JSON.stringify(result)
   } catch {
-    replaySteps.value = []
-  } finally {
-    loadingReplay.value = false
+    return String(result)
   }
 }
 </script>

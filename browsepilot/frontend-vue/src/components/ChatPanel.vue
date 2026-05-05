@@ -23,9 +23,14 @@
       </div>
     </div>
 
-    <!-- Input -->
-    <div class="px-4 pb-3">
+    <!-- Input — hidden when viewing history; shown otherwise -->
+    <div v-if="!isViewingHistory" class="px-4 pb-3">
       <ChatInput :disabled="processing" @submit="onSubmit" />
+    </div>
+    <div v-else class="px-4 pb-3 text-center">
+      <span class="text-[11px] text-text-disabled font-serif italic">
+        正在查看历史会话 — 点击「新建会话」返回
+      </span>
     </div>
   </div>
 </template>
@@ -44,6 +49,7 @@ const scrollRef = ref<HTMLDivElement>()
 
 const messages = computed(() => store.messages)
 const processing = computed(() => store.processing)
+const isViewingHistory = computed(() => !store.processing && store.sessionId && store.messages.length > 0 && !store.phase)
 
 // Auto-scroll to bottom when new messages arrive
 watch(
