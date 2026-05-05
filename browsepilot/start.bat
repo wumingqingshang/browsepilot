@@ -17,6 +17,20 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
+:: ---- Check frontend-vue ----
+if not exist "frontend-vue\node_modules" (
+    echo [ERROR] frontend-vue dependencies not installed, run: cd frontend-vue ^&^& npm install
+    pause
+    exit /b 1
+)
+
+:: ---- Clean ports ----
+echo Cleaning up old processes...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8090 :8000 :5173" ^| findstr "LISTENING"') do (
+    taskkill /pid %%a /f >nul 2>&1
+)
+echo.
+
 :: ---- MCP Server (Port 8090) ----
 echo [1/3] Starting MCP Server...
 start "BrowsePilot-MCP" cmd /k ".venv\Scripts\python.exe -m browser_mcp.main"
@@ -31,16 +45,16 @@ echo   Backend started
 
 timeout /t 2 /nobreak >nul
 
-:: ---- Frontend (Port 8501) ----
-echo [3/3] Starting Frontend...
-start "BrowsePilot-Frontend" cmd /k ".venv\Scripts\python.exe -m streamlit run frontend/streamlit_app.py --server.port 8501 --server.headless true"
+:: ---- Vue3 Frontend (Port 5173) ----
+echo [3/3] Starting Vue3 Frontend...
+start "BrowsePilot-Frontend" cmd /k "cd frontend-vue && npm run dev"
 echo   Frontend started
 
 echo.
 echo ==========================================
 echo   MCP:      http://localhost:8090/sse
 echo   Backend:  http://localhost:8000
-echo   Frontend: http://localhost:8501
+echo   Frontend: http://localhost:5173
 echo ==========================================
 echo.
 echo Close each window to stop the service.
