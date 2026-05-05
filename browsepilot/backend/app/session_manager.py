@@ -72,11 +72,33 @@ class SessionManager:
             for i, e in enumerate(session.get("execution_log", []))
         ]
 
-    def list_sessions(self) -> list[str]:
+    def list_sessions(self) -> list[dict]:
+        """返回会话列表，每个会话含 id、task 摘要、创建时间、状态。"""
         sessions_dir = Path(f"{settings.data_dir}/sessions")
-        if sessions_dir.exists():
-            return sorted([f.stem for f in sessions_dir.glob("*.json")], reverse=True)
-        return []
+        if not sessions_dir.exists():
+            return []
+        results = []
+        for f in sorted(sessions_dir.glob("*.json"), reverse=True):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                results.append({
+                    "id": data.get("session_id", f.stem),
+                    "task_summary": (data.get("task", "") or "")[:30],
+                    "created_at": data.get("created_at", ""),
+                    "status": data.get("status", "unknown"),
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+        return results
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除会话持久化文件。返回 True 表示删除成功。"""
+        filepath = Path(f"{settings.data_dir}/sessions/{session_id}.json")
+        if filepath.exists():
+            filepath.unlink()
+            logger.info("Session {} deleted", session_id)
+            return True
+        return False
 
     async def schedule_cleanup(self, session_id: str, mcp_client=None, delay_minutes: int = None) -> None:
         if delay_minutes is None:
