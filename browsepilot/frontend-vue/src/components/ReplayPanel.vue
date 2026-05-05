@@ -1,6 +1,6 @@
 <!-- frontend-vue/src/components/ReplayPanel.vue -->
 <template>
-  <div class="border-t border-border pt-3 mt-1 min-w-0">
+  <div class="border-t border-border pt-3 mt-1 min-w-0 flex flex-col overflow-hidden h-full">
     <div class="font-serif">
       <span class="text-[15px] text-text-muted tracking-[2px] uppercase font-bold">
         操作回放
@@ -17,7 +17,7 @@
 
     <div
       v-else-if="replaySteps.length > 0"
-      class="mt-3 space-y-3"
+      class="mt-3 space-y-3 overflow-y-auto flex-1 min-h-0"
     >
       <div
         v-for="step in replaySteps"
