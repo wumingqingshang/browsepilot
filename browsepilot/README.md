@@ -5,12 +5,13 @@
 ## 架构
 
 ```
-Streamlit FE ← HTTP/SSE → FastAPI Backend ← MCP/SSE → browser-mcp (Playwright)
+Vue3 SPA / Streamlit FE ← HTTP/SSE → FastAPI Backend ← MCP/SSE → browser-mcp (Playwright)
 ```
 
-- **browser-mcp**: 独立 MCP Server，封装 7 个 Playwright 浏览器工具（SSE + stdio 双模式）
-- **FastAPI Backend**: LangGraph Agent (Plan→Execute→Reflect→Replan→Answer) + SSE 实时事件流
-- **Streamlit Frontend**: 对话 + 实时截图监控 + 操作回放
+- **browser-mcp**: 独立 MCP Server，封装 住 8 个 Playwright 浏览器工具（SSE + stdio 双模式）
+- **FastAPI Backend**: LangGraph Agent (Plan→Execute→Reflect→Replan→Answer) + SSE 实时事件流 + 会话管理 API
+- **Vue3 Frontend**: 标准前后端分离 SPA，支持会话管理（新建/列表/回放含文本/删除）
+- **Streamlit Frontend**: 原版 Python 前端，保留可用
 
 ## 快速启动
 
@@ -22,10 +23,15 @@ Streamlit FE ← HTTP/SSE → FastAPI Backend ← MCP/SSE → browser-mcp (Playw
 ### 1. 安装依赖
 
 ```bash
+# Python 后端依赖
 uv venv
 source .venv/Scripts/activate  # Windows: .venv\Scripts\activate
 uv pip install fastapi uvicorn sse-starlette langgraph langchain langchain-openai mcp playwright streamlit loguru pydantic pydantic-settings httpx python-dotenv
 playwright install chromium
+
+# Vue3 前端依赖
+cd frontend-vue
+npm install
 ```
 
 ### 2. 配置环境变量
@@ -55,11 +61,14 @@ python -m browser_mcp.server
 # 终端 2: 启动后端 (端口 8000)
 cd backend && uvicorn app.main:app --port 8000
 
-# 终端 3: 启动前端 (端口 8501)
+# 终端 3: 启动 Vue3 前端 (端口 5173) — 推荐
+cd frontend-vue && npm run dev
+
+# 终端 3 (备选): 启动 Streamlit 前端 (端口 8501)
 streamlit run frontend/streamlit_app.py
 ```
 
-打开浏览器访问 **http://localhost:8501**
+打开浏览器访问 **http://localhost:5173**（Vue3）或 **http://localhost:8501**（Streamlit）
 
 ## 项目结构
 
@@ -79,6 +88,13 @@ browsepilot/
 │       └── config.py         # Pydantic 配置
 ├── frontend/                 # Streamlit 界面
 │   └── streamlit_app.py
+├── frontend-vue/             # Vue3 SPA 前端（推荐）
+│   └── src/
+│       ├── components/       # 11 个 Vue3 组件
+│       ├── stores/           # Pinia 状态管理
+│       ├── composables/      # useSSE 组合式函数
+│       ├── api/              # SSE + REST API 封装
+│       └── types/            # TypeScript 类型定义
 ├── data/                     # 运行时数据 (会话 JSON + 截图)
 ├── mcp_settings.json         # MCP 连接配置
 ├── pyproject.toml
@@ -106,5 +122,5 @@ browsepilot/
 | 浏览器自动化 | Playwright |
 | MCP 协议 | mcp (Python SDK) |
 | 后端 | FastAPI + SSE |
-| 前端 | Streamlit |
+| 前端 | Vue 3 + Vite + TypeScript + Pinia + Element Plus |
 | 日志 | loguru |
