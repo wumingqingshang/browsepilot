@@ -17,7 +17,7 @@
 
     <div
       v-else-if="replaySteps.length > 0"
-      class="mt-3 max-h-[40vh] overflow-y-auto space-y-3"
+      class="mt-3 space-y-3"
     >
       <div
         v-for="step in replaySteps"
