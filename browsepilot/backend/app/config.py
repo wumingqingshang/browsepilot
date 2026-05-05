@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     mcp_server_port: int = 8090
     mcp_mode: str = "sse"
     browser_headless: bool = True
+    browser_channel: str = ""
     browser_timeout: int = 15000
     allowed_domains: str = "github.com,baidu.com,wikipedia.org"
     log_level: str = "INFO"
