@@ -77,22 +77,23 @@ html, body, [data-testid="stApp"] {
 }
 
 /* === Left Column: Chat === */
-/* Target the column that contains the chat input — semantic, not positional */
-[data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] {
+/* Column wrapper: flex column, fill available space */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
 
-/* Messages container (stVerticalBlock from st.container): flex-grow, scrollable */
-[data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+/* Messages container (chat_area creates stLayoutWrapper): flex-grow, internal scroll */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"] {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
-/* Chat input wrapper: pushed to bottom by margin-top: auto */
-[data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+/* Chat input wrapper (stElementContainer): pinned to bottom */
+[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"] {
   flex-shrink: 0;
   margin-top: auto;
   padding-top: 8px;
