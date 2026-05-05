@@ -46,3 +46,7 @@ class SSEData:
     @staticmethod
     def error(message: str) -> dict:
         return {"event": "error", "data": {"message": message}}
+
+    @staticmethod
+    def session_created(session_id: str) -> dict:
+        return {"event": "session_created", "data": {"session_id": session_id}}
