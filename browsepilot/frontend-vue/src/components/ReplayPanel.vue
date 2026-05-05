@@ -36,8 +36,9 @@
         <img
           v-if="step.screenshot_path"
           :src="getScreenshotUrl(step.screenshot_path)"
-          class="max-w-full max-h-[30vh] object-contain mt-1 border border-card-border"
+          class="max-w-full max-h-[30vh] object-contain mt-1 border border-card-border cursor-zoom-in hover:opacity-90 transition-opacity"
           @error="onImgError($event)"
+          @click="lightboxSrc = getScreenshotUrl(step.screenshot_path)"
         />
       </div>
     </div>
@@ -48,6 +49,27 @@
     >
       该会话无回放数据
     </div>
+
+    <!-- Lightbox -->
+    <Teleport to="body">
+      <div
+        v-if="lightboxSrc"
+        class="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
+        @click="lightboxSrc = ''"
+      >
+        <img
+          :src="lightboxSrc"
+          alt="回放截图（放大）"
+          class="max-w-full max-h-full object-contain"
+        />
+        <button
+          class="absolute top-4 right-4 text-white text-[24px] bg-transparent border-none cursor-pointer opacity-60 hover:opacity-100"
+          @click="lightboxSrc = ''"
+        >
+          ×
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -60,6 +82,7 @@ import type { ReplayStep } from '@/types'
 const chatStore = useChatStore()
 const replaySteps = ref<ReplayStep[]>([])
 const loadingReplay = ref(false)
+const lightboxSrc = ref('')
 
 const currentSessionId = computed(() => chatStore.sessionId)
 
