@@ -1,6 +1,6 @@
 <!-- frontend-vue/src/components/ReplayPanel.vue -->
 <template>
-  <div class="border-t border-border pt-3 mt-1">
+  <div class="border-t border-border pt-3 mt-1 min-w-0">
     <div class="font-serif">
       <span class="text-[15px] text-text-muted tracking-[2px] uppercase font-bold">
         操作回放
@@ -22,21 +22,22 @@
       <div
         v-for="step in replaySteps"
         :key="step.step_index"
-        class="border border-card-border bg-surface p-2"
+        class="border border-card-border bg-surface p-2 min-w-0"
       >
         <div class="font-serif text-[12px] text-text-muted">
           Step {{ step.step_index }}: {{ step.step }}
         </div>
         <div
-          v-if="step.result && Object.keys(step.result).length > 0"
-          class="font-serif text-[12px] text-text-body mt-1"
+          v-if="statusText(step.result)"
+          class="font-serif text-[11px] text-text-muted mt-0.5"
         >
-          {{ formatResult(step.result) }}
+          {{ statusText(step.result) }}
         </div>
         <img
           v-if="step.screenshot_path"
           :src="getScreenshotUrl(step.screenshot_path)"
-          class="w-full max-w-full mt-1 border border-card-border"
+          class="max-w-full max-h-[30vh] object-contain mt-1 border border-card-border"
+          @error="onImgError($event)"
         />
       </div>
     </div>
@@ -83,17 +84,18 @@ function getScreenshotUrl(path: string): string {
   return `/api/screenshots/${filename}`
 }
 
-function formatResult(result: Record<string, any>): string {
-  if (typeof result === 'string') return result
-  // Exclude binary/large fields from display
-  const safe = { ...result }
-  delete safe.screenshot_base64
-  delete safe.screenshot_path
-  if (Object.keys(safe).length === 0) return ''
-  try {
-    return JSON.stringify(safe, null, 2)
-  } catch {
-    return ''
-  }
+function statusText(result: Record<string, any>): string {
+  if (!result || Object.keys(result).length === 0) return ''
+  const status = result.status
+  const hasStructure = result.structure && Object.keys(result.structure).length > 0
+  const parts: string[] = []
+  if (status) parts.push(`状态: ${status}`)
+  if (hasStructure) parts.push('页面结构数据已获取')
+  return parts.join(' | ')
+}
+
+function onImgError(e: Event) {
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
 }
 </script>
