@@ -79,6 +79,8 @@ async def chat_stream(request: Request):
 
             accumulated_state = dict(initial_state)
 
+            yield SSEData.session_created(session_id)
+
             async for event in graph.astream(initial_state, {"recursion_limit": 30}):
                 for node_name, node_output in event.items():
                     accumulated_state.update(node_output)
@@ -177,13 +179,33 @@ async def get_history(session_id: str):
 
 @app.get("/replay/{session_id}")
 async def get_replay(session_id: str):
-    data = session_manager.get_replay(session_id)
-    return JSONResponse(content=data)
+    session = session_manager.get_history(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    steps = []
+    for i, e in enumerate(session.get("execution_log", [])):
+        step_data = {
+            "step_index": i,
+            "step": e.get("step", ""),
+            "screenshot_path": e.get("screenshot_path", ""),
+            "timestamp": e.get("timestamp", ""),
+            "result": (e.get("result", {}) if isinstance(e.get("result"), dict) else {}),
+        }
+        steps.append(step_data)
+    return JSONResponse(content=steps)
 
 
 @app.get("/sessions")
 async def list_sessions():
     return JSONResponse(content=session_manager.list_sessions())
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    ok = session_manager.delete_session(session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found")
+    return JSONResponse(content={"ok": True})
 
 
 @app.get("/health")
