@@ -36,7 +36,7 @@
         <img
           v-if="step.screenshot_path"
           :src="getScreenshotUrl(step.screenshot_path)"
-          class="w-full mt-1 border border-card-border"
+          class="w-full max-w-full mt-1 border border-card-border"
         />
       </div>
     </div>
@@ -85,10 +85,15 @@ function getScreenshotUrl(path: string): string {
 
 function formatResult(result: Record<string, any>): string {
   if (typeof result === 'string') return result
+  // Exclude binary/large fields from display
+  const safe = { ...result }
+  delete safe.screenshot_base64
+  delete safe.screenshot_path
+  if (Object.keys(safe).length === 0) return ''
   try {
-    return JSON.stringify(result)
+    return JSON.stringify(safe, null, 2)
   } catch {
-    return String(result)
+    return ''
   }
 }
 </script>

@@ -1,6 +1,6 @@
 <!-- frontend-vue/src/components/MonitorPanel.vue -->
 <template>
-  <div class="h-full overflow-y-auto p-3 space-y-2">
+  <div class="h-full overflow-y-auto p-3 space-y-2 min-w-0">
     <div class="grid grid-cols-[3fr_1fr] gap-2">
       <PlanSteps />
       <TokenCounter />
