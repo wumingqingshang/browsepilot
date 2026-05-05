@@ -59,10 +59,9 @@ html, body, [data-testid="stApp"] {
   min-height: 0;
 }
 
-/* All columns in nested horizontal blocks fill available height */
+/* Nested horizontal blocks (e.g. plan+token row in right panel) — don't grow */
 [data-testid="stColumn"] [data-testid="stHorizontalBlock"] {
-  flex: 1;
-  min-height: 0;
+  flex: none;
 }
 
 /* All columns: flex column, no page-level overflow */
@@ -72,38 +71,33 @@ html, body, [data-testid="stApp"] {
   overflow: hidden;
 }
 
-/* Direct child vertical blocks of columns: flex column to pass height down */
-[data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
-  display: flex;
-  flex-direction: column;
+/* Nested sub-columns (plan/token in right panel) — don't clip content */
+[data-testid="stColumn"] [data-testid="stColumn"] {
+  overflow: visible;
 }
 
-/* Nested horizontal block is our st.columns([7,3]) — target its direct column children */
-
-/* Our left column (chat): outer vertical block */
-[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
+/* === Left Column: Chat === */
+/* Target the column that contains the chat input — semantic, not positional */
+[data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
 }
 
-/* Messages container (nested stVerticalBlock from st.container): flex-grow, scrollable */
-[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
+/* Messages container (stVerticalBlock from st.container): flex-grow, scrollable */
+[data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
 }
 
 /* Chat input wrapper: pushed to bottom by margin-top: auto */
-[data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
+[data-testid="stColumn"]:has([data-testid="stChatInput"]) > [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:last-child {
   flex-shrink: 0;
   margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--border);
-}
-
-[data-testid="stChatInput"] {
-  flex-shrink: 0;
 }
 
 /* === Right Column: Monitoring Panel === */
@@ -306,7 +300,7 @@ with left_col:
     # Scrollable chat messages container (creates nested stVerticalBlock for CSS targeting)
     chat_area = st.container()
     with chat_area:
-        if not st.session_state.messages:
+        if not st.session_state.messages and not st.session_state.get("processing"):
             st.markdown(
                 '<div style="display:flex;align-items:center;justify-content:center;'
                 'height:100%;min-height:200px;font-family:Georgia,serif;'
@@ -318,171 +312,178 @@ with left_col:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
 
-    # Chat input
-    task = st.chat_input("输入你的浏览器操作指令，例如：打开百度搜索 LangChain MCP...")
+        # Active task processing — rendered INSIDE chat_area so CSS flex/scrolling works
+        if st.session_state.get("processing"):
+            with st.chat_message("assistant"):
+                progress_placeholder = st.empty()
 
-    if task:
-        # Add user message immediately
-        st.session_state.messages.append({"role": "user", "content": task})
-        # Reset all task-specific state for the new task
-        st.session_state.plan_steps = []
-        st.session_state.current_step = ""
-        st.session_state.current_screenshot = None
-        st.session_state.token_count = 0
-        st.session_state.prompt_tokens = 0
-        st.session_state.completion_tokens = 0
-        st.session_state.thinking_phase = None
-        st.session_state.thinking_message = ""
-        st.session_state.current_step_index = 0
-        st.session_state.total_steps = 0
+                try:
+                    resp = requests.post(
+                        f"{api_url}/chat/stream",
+                        json={"task": st.session_state.get("current_task", "")},
+                        stream=True,
+                        timeout=120,
+                    )
 
-        # Show assistant bubble with real-time progress
-        with st.chat_message("assistant"):
-            progress_placeholder = st.empty()
+                    answer_content = ""
+                    step_count = 0
 
-            try:
-                resp = requests.post(
-                    f"{api_url}/chat/stream",
-                    json={"task": task},
-                    stream=True,
-                    timeout=120,
-                )
-
-                answer_content = ""
-                step_count = 0
-
-                # Buffer for collecting SSE data chunks
-                buffer = ""
-                for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-                    if not chunk:
-                        continue
-                    buffer += chunk
-                    while "\n\n" in buffer:
-                        event_str, buffer = buffer.split("\n\n", 1)
-                        lines = event_str.strip().split("\n")
-                        data_line = ""
-                        for line in lines:
-                            if line.startswith("data: "):
-                                data_line = line[6:]
-                                break
-                        if not data_line:
+                    buffer = ""
+                    for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
+                        if not chunk:
                             continue
-                        try:
-                            event = json.loads(data_line)
-                        except json.JSONDecodeError:
-                            continue
+                        buffer += chunk
+                        while "\n\n" in buffer:
+                            event_str, buffer = buffer.split("\n\n", 1)
+                            lines = event_str.strip().split("\n")
+                            data_line = ""
+                            for line in lines:
+                                if line.startswith("data: "):
+                                    data_line = line[6:]
+                                    break
+                            if not data_line:
+                                continue
+                            try:
+                                event = json.loads(data_line)
+                            except json.JSONDecodeError:
+                                continue
 
-                        event_type = event.get("event")
+                            event_type = event.get("event")
 
-                        if event_type == "thinking_status":
-                            phase = event["data"].get("phase", "")
-                            message = event["data"].get("message", "")
-                            step_index = event["data"].get("step_index", 0)
-                            total_steps = event["data"].get("total_steps", 0)
-                            st.session_state.thinking_phase = phase
-                            st.session_state.thinking_message = message
-                            if step_index:
-                                st.session_state.current_step_index = step_index
-                            if total_steps:
-                                st.session_state.total_steps = total_steps
-                            # Render phase indicator for non-executing phases (executing handled by step_start/step_end)
-                            if phase in ("planning", "reflecting", "replanning", "answering"):
+                            if event_type == "thinking_status":
+                                phase = event["data"].get("phase", "")
+                                message = event["data"].get("message", "")
+                                step_index = event["data"].get("step_index", 0)
+                                total_steps = event["data"].get("total_steps", 0)
+                                st.session_state.thinking_phase = phase
+                                st.session_state.thinking_message = message
+                                if step_index:
+                                    st.session_state.current_step_index = step_index
+                                if total_steps:
+                                    st.session_state.total_steps = total_steps
+                                if phase in ("planning", "reflecting", "replanning", "answering"):
+                                    progress_placeholder.markdown(
+                                        _phase_html(phase, message),
+                                        unsafe_allow_html=True,
+                                    )
+
+                            elif event_type == "plan_generated":
+                                steps = event["data"].get("steps", [])
+                                st.session_state.plan_steps = steps
+                                st.session_state.current_step = steps[0] if steps else ""
+                                st.session_state.total_steps = len(steps)
+                                st.session_state.thinking_phase = "executing"
                                 progress_placeholder.markdown(
-                                    _phase_html(phase, message),
+                                    _phase_html("planning", f"已制定 {len(steps)} 步执行计划") + _progress_bar_html(0, len(steps)),
                                     unsafe_allow_html=True,
                                 )
 
-                        elif event_type == "plan_generated":
-                            steps = event["data"].get("steps", [])
-                            st.session_state.plan_steps = steps
-                            st.session_state.current_step = steps[0] if steps else ""
-                            st.session_state.total_steps = len(steps)
-                            st.session_state.thinking_phase = "executing"
-                            progress_placeholder.markdown(
-                                _phase_html("planning", f"已制定 {len(steps)} 步执行计划") + _progress_bar_html(0, len(steps)),
-                                unsafe_allow_html=True,
-                            )
-
-                        elif event_type == "step_start":
-                            step = event["data"].get("step", "")
-                            st.session_state.current_step = step
-                            if step_index := event["data"].get("step_index"):
-                                st.session_state.current_step_index = step_index + 1  # 0-based to 1-based
-                            idx = st.session_state.current_step_index
-                            total = st.session_state.total_steps
-                            progress_placeholder.markdown(
-                                _phase_html("executing", step, idx, total) + _progress_bar_html(idx, total),
-                                unsafe_allow_html=True,
-                            )
-
-                        elif event_type == "screenshot":
-                            b64 = event["data"].get("base64", "")
-                            if b64:
-                                st.session_state.current_screenshot = b64
-
-                        elif event_type == "step_end":
-                            result = event["data"].get("result", {})
-                            if isinstance(result, dict) and result.get("status") == "error":
+                            elif event_type == "step_start":
+                                step = event["data"].get("step", "")
+                                st.session_state.current_step = step
+                                if step_index := event["data"].get("step_index"):
+                                    st.session_state.current_step_index = step_index + 1
+                                idx = st.session_state.current_step_index
+                                total = st.session_state.total_steps
                                 progress_placeholder.markdown(
-                                    f'<div class="phase-label" style="color:#e33e2b">重试中<span class="thinking-dot"></span></div>'
-                                    f'<div style="font-family:Georgia,serif;color:#e33e2b;font-size:14px">⚠️ 步骤失败，正在重试...</div>',
-                                    unsafe_allow_html=True,
-                                )
-                            else:
-                                step_count += 1
-                                progress_placeholder.markdown(
-                                    _phase_html("executing", f"已完成 {step_count} 个步骤", step_count, len(st.session_state.plan_steps))
-                                    + _progress_bar_html(step_count + 1, len(st.session_state.plan_steps)),
+                                    _phase_html("executing", step, idx, total) + _progress_bar_html(idx, total),
                                     unsafe_allow_html=True,
                                 )
 
-                        elif event_type == "reflection":
-                            decision = event["data"].get("decision", "")
-                            if decision == "replan":
-                                progress_placeholder.markdown(
-                                    _phase_html("replanning", "调整执行策略..."),
-                                    unsafe_allow_html=True,
-                                )
+                            elif event_type == "screenshot":
+                                b64 = event["data"].get("base64", "")
+                                if b64:
+                                    st.session_state.current_screenshot = b64
 
-                        elif event_type == "replan":
-                            new_steps = event["data"].get("new_steps", [])
-                            if new_steps:
-                                st.session_state.plan_steps = new_steps
-                                st.session_state.total_steps = len(new_steps)
-                                st.session_state.current_step_index = 0
+                            elif event_type == "step_end":
+                                result = event["data"].get("result", {})
+                                if isinstance(result, dict) and result.get("status") == "error":
+                                    progress_placeholder.markdown(
+                                        f'<div class="phase-label" style="color:#e33e2b">重试中<span class="thinking-dot"></span></div>'
+                                        f'<div style="font-family:Georgia,serif;color:#e33e2b;font-size:14px">⚠️ 步骤失败，正在重试...</div>',
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    step_count += 1
+                                    progress_placeholder.markdown(
+                                        _phase_html("executing", f"已完成 {step_count} 个步骤", step_count, len(st.session_state.plan_steps))
+                                        + _progress_bar_html(step_count + 1, len(st.session_state.plan_steps)),
+                                        unsafe_allow_html=True,
+                                    )
 
-                        elif event_type == "token_update":
-                            prompt = event["data"].get("prompt", 0)
-                            completion = event["data"].get("completion", 0)
-                            st.session_state.prompt_tokens = prompt
-                            st.session_state.completion_tokens = completion
-                            st.session_state.token_count = prompt + completion
+                            elif event_type == "reflection":
+                                decision = event["data"].get("decision", "")
+                                if decision == "replan":
+                                    progress_placeholder.markdown(
+                                        _phase_html("replanning", "调整执行策略..."),
+                                        unsafe_allow_html=True,
+                                    )
 
-                        elif event_type == "final_answer":
-                            answer_content = event["data"].get("content", "")
-                            total = event["data"].get("total_tokens", 0)
-                            st.session_state.token_count = total
-                            st.session_state.prompt_tokens = 0
-                            st.session_state.completion_tokens = 0
-                            st.session_state.thinking_phase = None
-                            progress_placeholder.empty()
-                            st.write(answer_content)
-                            st.session_state.messages.append({"role": "assistant", "content": answer_content})
+                            elif event_type == "replan":
+                                new_steps = event["data"].get("new_steps", [])
+                                if new_steps:
+                                    st.session_state.plan_steps = new_steps
+                                    st.session_state.total_steps = len(new_steps)
+                                    st.session_state.current_step_index = 0
 
-                        elif event_type == "error":
-                            error_msg = event["data"].get("message", "Unknown error")
-                            progress_placeholder.empty()
-                            st.error(f"❌ 错误: {error_msg}")
-                            answer_content = f"❌ 错误: {error_msg}"
+                            elif event_type == "token_update":
+                                prompt = event["data"].get("prompt", 0)
+                                completion = event["data"].get("completion", 0)
+                                st.session_state.prompt_tokens = prompt
+                                st.session_state.completion_tokens = completion
+                                st.session_state.token_count = prompt + completion
 
-                # If no final_answer received, show warning
-                if not answer_content:
-                    progress_placeholder.warning("任务执行完成，但未获取到回答内容")
+                            elif event_type == "final_answer":
+                                answer_content = event["data"].get("content", "")
+                                total = event["data"].get("total_tokens", 0)
+                                st.session_state.token_count = total
+                                st.session_state.prompt_tokens = 0
+                                st.session_state.completion_tokens = 0
+                                st.session_state.thinking_phase = None
+                                st.session_state.messages.append({"role": "assistant", "content": answer_content})
 
-            except requests.exceptions.ConnectionError:
-                st.error(f"无法连接到后端 {api_url}，请确认后端已启动")
-            except Exception as e:
-                st.error(f"请求失败: {str(e)}")
+                            elif event_type == "error":
+                                error_msg = event["data"].get("message", "Unknown error")
+                                st.session_state.messages.append({"role": "assistant", "content": f"❌ 错误: {error_msg}"})
+
+                    # Stream complete — rerun to show final state
+                    st.session_state.processing = False
+                    st.session_state.current_task = ""
+                    st.rerun()
+
+                except requests.exceptions.ConnectionError:
+                    st.session_state.processing = False
+                    st.session_state.current_task = ""
+                    st.session_state.messages.append(
+                        {"role": "assistant", "content": f"无法连接到后端 {api_url}，请确认后端已启动"}
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.session_state.processing = False
+                    st.session_state.current_task = ""
+                    st.session_state.messages.append({"role": "assistant", "content": f"请求失败: {str(e)}"})
+                    st.rerun()
+
+    # Chat input — hidden while task is processing
+    if not st.session_state.get("processing"):
+        task = st.chat_input("输入你的浏览器操作指令，例如：打开百度搜索 LangChain MCP...")
+
+        if task:
+            st.session_state.messages.append({"role": "user", "content": task})
+            st.session_state.current_task = task
+            st.session_state.processing = True
+            # Reset all task-specific state
+            st.session_state.plan_steps = []
+            st.session_state.current_step = ""
+            st.session_state.current_screenshot = None
+            st.session_state.token_count = 0
+            st.session_state.prompt_tokens = 0
+            st.session_state.completion_tokens = 0
+            st.session_state.thinking_phase = None
+            st.session_state.thinking_message = ""
+            st.session_state.current_step_index = 0
+            st.session_state.total_steps = 0
+            st.rerun()
 
 
 # ===== RIGHT PANEL: Monitoring =====
