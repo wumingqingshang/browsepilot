@@ -322,11 +322,19 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
         "retry_count": state["retry_count"],
     }]
 
-    new_plan = state["plan"][1:]
+    success = isinstance(result, dict) and result.get("status") != "error"
+
+    if success:
+        new_plan = state["plan"][1:]   # Success: advance to next step
+        retry_count = 0
+    else:
+        new_plan = state["plan"]       # Failure: keep current step for retry
+        retry_count = state.get("retry_count", 0) + 1
 
     return {
         "execution_log": new_log,
         "plan": new_plan,
+        "retry_count": retry_count,
         "messages": state["messages"] + [
             HumanMessage(content=f"步骤: {current_step}"),
             HumanMessage(content=f"结果: {json.dumps(result, ensure_ascii=False)[:500]}"),
