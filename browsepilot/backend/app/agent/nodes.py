@@ -227,11 +227,17 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
 
 重要：get_page_structure 工具可以提取页面上所有输入框、按钮、链接及其 CSS 选择器，在执行任何点击或输入操作前，必须先用它获取选择器。
 
+搜索引擎选择：
+- 默认使用 Bing (https://www.bing.com) 进行搜索
+- 避免使用百度——百度有严格的反爬验证，访问经常失败
+- 仅当用户明确要求使用特定搜索引擎时才使用其他引擎
+
 请根据用户任务，生成一个JSON格式的执行步骤列表。每个步骤是一个自然语言描述的简单操作。
 规则：
 1. 导航到页面后，始终先获取页面结构（get_page_structure）找到目标元素的精确选择器
 2. 根据页面结构中的实际选择器执行操作
 3. 不要猜测选择器（如 input[type='text']），应从页面结构中获取
+4. 搜索类任务默认访问 https://www.bing.com，不要使用百度
 
 格式示例：["导航到 https://github.com", "获取页面结构，找到搜索框的选择器", "在找到的搜索框中输入关键字", "获取页面结构，找到搜索按钮的选择器", "点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
 只返回JSON数组，不要包含其他内容。步骤要具体、可执行。"""
@@ -760,7 +766,9 @@ async def replan_node(state: AgentState, mcp_client) -> dict:
 
 The previous execution plan failed. Analyze the failure context (and any screenshots provided) to create a new, better plan.
 
-Important: generate a DIFFERENT plan from the failed one. Try alternative approaches.
+Important:
+- Generate a DIFFERENT plan from the failed one. Try alternative approaches.
+- Use Bing (https://www.bing.com) for searches. Avoid Baidu — it has strict anti-bot verification.
 
 Generate a JSON array of execution steps. Format: ["step 1", "step 2", ...]
 Return ONLY the JSON array, nothing else."""
