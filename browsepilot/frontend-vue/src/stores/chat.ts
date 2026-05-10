@@ -60,9 +60,9 @@ export const useChatStore = defineStore('chat', {
           break
 
         case 'step_start':
-          if (d.step_index != null) {
-            this.currentStepIndex = d.step_index + 1
-          }
+          // Increment locally — step_index is global across replans,
+          // but currentStepIndex should track position within current plan
+          this.currentStepIndex += 1
           break
 
         case 'screenshot':

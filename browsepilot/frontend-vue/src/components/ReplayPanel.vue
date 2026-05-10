@@ -91,6 +91,17 @@ watch(currentSessionId, async (id) => {
     replaySteps.value = []
     return
   }
+  await loadReplay(id)
+}, { immediate: true })
+
+// Re-fetch replay when task completes (processing -> false)
+watch(() => chatStore.processing, async (wasProcessing, isNowIdle) => {
+  if (wasProcessing && !isNowIdle && chatStore.sessionId) {
+    await loadReplay(chatStore.sessionId)
+  }
+})
+
+async function loadReplay(id: string) {
   loadingReplay.value = true
   try {
     replaySteps.value = await fetchReplay(id)
@@ -99,7 +110,7 @@ watch(currentSessionId, async (id) => {
   } finally {
     loadingReplay.value = false
   }
-}, { immediate: true })
+}
 
 function getScreenshotUrl(path: string): string {
   if (!path) return ''
