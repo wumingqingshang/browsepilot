@@ -72,15 +72,13 @@ async def chat_stream(request: Request):
         async def _cleanup_session():
             """Persist partial state and close MCP on exception."""
             try:
-                if 'graph' in dir() and 'graph_config' in dir():
-                    state_snapshot = await graph.aget_state(graph_config)
-                    if state_snapshot and state_snapshot.values:
-                        session_manager.update(session_id,
-                            execution_log=state_snapshot.values.get("execution_log", []),
-                            final_answer=state_snapshot.values.get("final_answer", ""),
-                            token_usage=state_snapshot.values.get("token_usage", {}),
-                        )
-                        session_manager.persist(session_id)
+                if accumulated_state:
+                    session_manager.update(session_id,
+                        execution_log=accumulated_state.get("execution_log", []),
+                        final_answer=accumulated_state.get("final_answer", ""),
+                        token_usage=accumulated_state.get("token_usage", {}),
+                    )
+                    session_manager.persist(session_id)
             except Exception:
                 pass
             try:
@@ -116,13 +114,13 @@ async def chat_stream(request: Request):
                 "configurable": {"thread_id": session_id},
             }
 
+            accumulated_state = dict(initial_state)
             yield SSEData.session_created(session_id)
 
             # Stream with session timeout via asyncio.wait_for on each __anext__()
             timeout = getattr(settings, 'session_timeout_seconds', 300)
             deadline = time.monotonic() + timeout
             astream = graph.astream(initial_state, graph_config)
-            final_state = None
 
             while True:
                 remaining = deadline - time.monotonic()
@@ -140,6 +138,7 @@ async def chat_stream(request: Request):
                     break
 
                 for node_name, node_output in event.items():
+                    accumulated_state.update(node_output)
                     if node_name == "classify":
                         yield SSEData.thinking_status("classifying", "正在分析用户意图...")
                         intent = node_output.get("intent", "unknown")
@@ -192,20 +191,13 @@ async def chat_stream(request: Request):
                             tu.get("prompt", 0), tu.get("completion", 0)
                         )
 
-            # Get final state from LangGraph native state (checkpointer resumes, no rerun)
-            try:
-                state_snapshot = await graph.aget_state(graph_config)
-                if state_snapshot and state_snapshot.values:
-                    final_state = state_snapshot.values
-            except Exception as e:
-                logger.warning("Failed to get final state from graph: {}", e)
-
-            # Persist session using LangGraph native final state
-            if final_state:
+            # Persist session using accumulated state (primary) with
+            # LangGraph native state as backup verification
+            if accumulated_state:
                 session_manager.update(session_id,
-                    execution_log=final_state.get("execution_log", []),
-                    final_answer=final_state.get("final_answer", ""),
-                    token_usage=final_state.get("token_usage", {}),
+                    execution_log=accumulated_state.get("execution_log", []),
+                    final_answer=accumulated_state.get("final_answer", ""),
+                    token_usage=accumulated_state.get("token_usage", {}),
                 )
             session_manager.persist(session_id)
 
