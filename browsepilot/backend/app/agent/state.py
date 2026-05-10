@@ -14,7 +14,8 @@ class AgentState(TypedDict):
     retry_count: int
     need_replan: bool
     final_answer: str
-    token_usage: dict  # {"prompt": int, "completion": int}
+    token_usage: dict  # {"prompt": 0, "completion": 0, "breakdown": {"classify": {...}, "plan": {...}, ...}}
+    total_steps: int  # Monotonically increasing screenshot counter (replaces len(execution_log) for naming)
     completion_check_count: int  # max 1 completion check per session
     consecutive_failures: int  # consecutive step failures
     stagnation_count: int  # stagnation detection counter

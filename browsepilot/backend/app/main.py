@@ -84,7 +84,13 @@ async def chat_stream(request: Request):
                 "retry_count": 0,
                 "need_replan": False,
                 "final_answer": "",
-                "token_usage": {"prompt": 0, "completion": 0},
+                "total_steps": 0,
+                "token_usage": {"prompt": 0, "completion": 0, "breakdown": {}},
+                "consecutive_failures": 0,
+                "stagnation_count": 0,
+                "replan_count": 0,
+                "stagnation_warning": False,
+                "completion_check_count": 0,
             }
 
             accumulated_state = dict(initial_state)

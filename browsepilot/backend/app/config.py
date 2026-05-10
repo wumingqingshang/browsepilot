@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     stagnation_threshold: int = 3
     replan_max_count: int = 2
     recursion_warning_threshold: int = 25
+    max_context_tokens: int = 8000
+    max_messages_count: int = 50
 
     @model_validator(mode="after")
     def check_critical(self):

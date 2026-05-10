@@ -1,25 +1,14 @@
-"""Convert MCP tools to LangChain Tool objects."""
-
-from langchain_core.tools import tool
+"""MCP tool description helpers."""
 
 
-def mcp_tool_to_langchain(mcp_client, tool_info: dict):
-    """Create a LangChain Tool from MCP tool metadata."""
-    tool_name = tool_info["name"]
-
-    @tool(tool_name, description=tool_info.get("description", ""))
-    async def dynamic_tool(**kwargs) -> str:
-        import json
-        result = await mcp_client.call_tool(tool_name, kwargs)
-        return json.dumps(result, ensure_ascii=False)
-
-    return dynamic_tool
+def get_tools_description(mcp_client) -> str:
+    """Generate tool description text directly from MCP tool metadata."""
+    lines = []
+    for t in mcp_client.tools:
+        lines.append(f"- {t['name']}: {t.get('description', '')}")
+    return "\n".join(lines)
 
 
 async def build_tools_from_mcp(mcp_client) -> list:
-    """Build a list of LangChain Tool objects from connected MCP client."""
-    langchain_tools = []
-    for t in mcp_client.tools:
-        lc_tool = mcp_tool_to_langchain(mcp_client, t)
-        langchain_tools.append(lc_tool)
-    return langchain_tools
+    """Return tools list from MCP client. Kept for graph.py compatibility."""
+    return mcp_client.tools

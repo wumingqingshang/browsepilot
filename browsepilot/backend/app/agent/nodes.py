@@ -101,29 +101,30 @@ async def parse_llm_json(
     return fallback, None
 
 
-def accumulate_tokens(existing: dict, usage_or_response, node_name: str = "") -> dict:
-    """Accumulate token usage from an LLM response or usage_metadata object."""
-    if not usage_or_response:
-        return dict(existing)
-
-    # If it's an AIMessage with usage_metadata, extract it
-    if hasattr(usage_or_response, "usage_metadata"):
-        usage = usage_or_response.usage_metadata
-    else:
-        usage = usage_or_response
-
+def accumulate_tokens(current: dict, usage, node_name: str = "") -> dict:
+    """Accumulate token usage with per-node breakdown."""
+    if usage is None:
+        return dict(current)
+    # Handle both usage_metadata dict and AIMessage with usage_metadata attribute
+    if hasattr(usage, 'usage_metadata'):
+        usage = usage.usage_metadata
     if not usage:
-        return dict(existing)
+        return dict(current)
+    add_prompt = usage.get("input_tokens", 0)
+    add_completion = usage.get("output_tokens", 0)
+    return {
+        "prompt": current.get("prompt", 0) + add_prompt,
+        "completion": current.get("completion", 0) + add_completion,
+        "breakdown": {
+            **current.get("breakdown", {}),
+            node_name: {"prompt": add_prompt, "completion": add_completion},
+        },
+    }
 
-    result = dict(existing)
-    # Handle both dict-like and object access patterns
-    if hasattr(usage, "get"):
-        result["prompt"] = result.get("prompt", 0) + (usage.get("input_tokens") or 0)
-        result["completion"] = result.get("completion", 0) + (usage.get("output_tokens") or 0)
-    else:
-        result["prompt"] = result.get("prompt", 0) + (getattr(usage, "input_tokens", None) or 0)
-        result["completion"] = result.get("completion", 0) + (getattr(usage, "output_tokens", None) or 0)
-    return result
+
+def estimate_tokens(text: str) -> int:
+    """Conservative token estimate: 2 chars per token."""
+    return len(text) // 2
 
 
 def get_llm():
@@ -192,8 +193,11 @@ async def classify_node(state: AgentState) -> dict:
         logger.warning("[classify_node] Unknown intent '{}', defaulting to browser_task", intent)
         intent = "browser_task"
 
+    token_usage = accumulate_tokens(state.get("token_usage", {}), usage, "classify")
+
     return {
         "intent": intent,
+        "token_usage": token_usage,
     }
 
 
@@ -238,10 +242,7 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
         logger.warning("[plan_node] Failed to parse plan JSON, using fallback")
         plan = [state["task"], "回答用户"]
 
-    token_usage = {
-        "prompt": response.usage_metadata.get("input_tokens", 0) if response.usage_metadata else 0,
-        "completion": response.usage_metadata.get("output_tokens", 0) if response.usage_metadata else 0,
-    }
+    token_usage = accumulate_tokens({}, response, "plan")
 
     # Self-check: can this plan answer the user's question?
     self_check_prompt = f"""User task: {state["task"]}
@@ -266,7 +267,7 @@ Return ONLY JSON."""
                 plan.extend(extra)
                 logger.info("[plan_node] Self-check added {} extra steps", len(extra))
         if check_usage:
-            token_usage = accumulate_tokens(token_usage, check_usage, "plan")
+            token_usage = accumulate_tokens(token_usage, check_usage, "plan_self_check")
     except Exception as e:
         logger.warning("[plan_node] Self-check failed, using plan as-is: {}", e)
 
@@ -307,9 +308,9 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
 
     llm = get_llm()
 
-    # Build tool descriptions for LLM tool selection
+    # Build tool descriptions for LLM tool selection (tools are raw MCP dicts)
     tools_desc = "\n".join(
-        f"- {t.name}: {t.description}"
+        f"- {t['name']}: {t.get('description', '')}"
         for t in langchain_tools
     )
 
@@ -339,6 +340,9 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
         SystemMessage(content=prompt),
         HumanMessage(content=current_step),
     ])
+
+    # Capture token usage for this execution step
+    token_usage = accumulate_tokens(state.get("token_usage", {}), response, "execute")
 
     result = {}
     tool_used = "none"
@@ -376,9 +380,9 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
             pass  # Continue with screenshot save
 
         if not skip_screenshot:
-            step_index = len(state["execution_log"])
+            step_index = state.get("total_steps", 0)
             os.makedirs(f"{settings.data_dir}/screenshots", exist_ok=True)
-            screenshot_path = f"{settings.data_dir}/screenshots/step_{step_index}_{datetime.now(timezone.utc).strftime('%H%M%S')}.png"
+            screenshot_path = f"{settings.data_dir}/screenshots/step_{step_index}.png"
             try:
                 with open(screenshot_path, "wb") as f:
                     f.write(base64.b64decode(result["screenshot_base64"]))
@@ -408,6 +412,8 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
         "execution_log": new_log,
         "plan": new_plan,
         "retry_count": retry_count,
+        "total_steps": state.get("total_steps", 0) + 1,
+        "token_usage": token_usage,
         "messages": state["messages"] + [
             HumanMessage(content=f"步骤: {current_step}"),
             HumanMessage(content=f"结果: {json.dumps(result, ensure_ascii=False)[:500]}"),
@@ -722,6 +728,8 @@ Return ONLY the JSON array, nothing else."""
         logger.warning("[replan_node] Failed to parse replan JSON: {}", e)
         new_plan = ["回答用户（基于已完成步骤给出部分结果）"]
 
+    token_usage = accumulate_tokens(state.get("token_usage", {}), response, "replan")
+
     similarity = compute_plan_similarity(state.get("plan", []), new_plan)
 
     if similarity == 1.0:
@@ -731,6 +739,7 @@ Return ONLY the JSON array, nothing else."""
             "need_replan": False,
             "stagnation_count": state.get("stagnation_count", 0) + 1,
             "replan_count": state.get("replan_count", 0) + 1,
+            "token_usage": token_usage,
         }
 
     if similarity > 0.8:
@@ -741,6 +750,7 @@ Return ONLY the JSON array, nothing else."""
             "stagnation_warning": True,
             "replan_count": state.get("replan_count", 0) + 1,
             "need_replan": False,
+            "token_usage": token_usage,
         }
 
     return {
@@ -749,6 +759,7 @@ Return ONLY the JSON array, nothing else."""
         "stagnation_warning": False,
         "replan_count": state.get("replan_count", 0) + 1,
         "need_replan": False,
+        "token_usage": token_usage,
     }
 
 
@@ -756,14 +767,24 @@ Return ONLY the JSON array, nothing else."""
 
 
 def compress_execution_log(execution_log: list, max_tokens: int = 4000) -> str:
-    """Simple compression placeholder — will be enhanced in Task 11."""
+    """Compress execution log: last 3 steps full detail, older steps summary only."""
     if len(execution_log) <= 3:
-        return "\n".join(f"- {e.get('step', '')}: {str(e.get('result', {}))[:200]}" for e in execution_log)
+        parts = []
+        for e in execution_log:
+            result_str = json.dumps(e.get("result", {}), ensure_ascii=False)[:200]
+            parts.append(f"- {e.get('step', '')}: {result_str}")
+        return "\n".join(parts)
+
     recent = execution_log[-3:]
     older = execution_log[:-3]
-    parts = [f"- {e.get('step', '')} [{e.get('result', {}).get('status', 'unknown')}]" for e in older]
-    parts.append("---")
-    parts.extend(f"- {e.get('step', '')}: {str(e.get('result', {}))[:300]}" for e in recent)
+    parts = ["## Earlier steps (summary)"]
+    for e in older:
+        status = e.get("result", {}).get("status", "unknown") if isinstance(e.get("result"), dict) else "unknown"
+        parts.append(f"- {e.get('step', '')} [{status}]")
+    parts.append("\n## Recent steps (detailed)")
+    for e in recent:
+        result_str = json.dumps(e.get("result", {}), ensure_ascii=False)[:300]
+        parts.append(f"- {e.get('step', '')}: {result_str}")
     return "\n".join(parts)
 
 
@@ -775,13 +796,43 @@ def build_context_with_budget(
     page_contents: list[str],
     max_tokens: int = 8000,
 ) -> str:
-    """Simple context assembly placeholder — will be enhanced in Task 11."""
-    parts = [system_prompt, f"User task: {task}"]
-    parts.append("Execution log:")
-    parts.append(compress_execution_log(execution_log))
-    if page_contents:
-        parts.append("Page contents collected:")
-        parts.extend(f"---\n{pc[:500]}" for pc in page_contents[-5:])
+    """Assemble context by priority; truncate low-priority content when over budget."""
+    core = f"{system_prompt}\n\nUser task: {task}"
+    budget = max_tokens - estimate_tokens(core)
+    if budget <= 0:
+        return core[: max_tokens * 2]
+
+    # Execution log (up to 50% of remaining budget, max 4000)
+    log_budget = min(int(budget * 0.5), 4000)
+    log_text = compress_execution_log(execution_log, max_tokens=log_budget)
+    budget -= estimate_tokens(log_text)
+
+    # Page contents (up to 30% of remaining budget)
+    content_budget = int(budget * 0.3)
+    content_parts = []
+    for pc in reversed(page_contents):
+        chunk = pc[:content_budget * 2]
+        if not chunk:
+            break
+        content_parts.insert(0, chunk)
+    content_text = "\n---\n".join(content_parts) if content_parts else ""
+    budget -= estimate_tokens(content_text)
+
+    # Messages (remaining budget)
+    msg_parts = []
+    max_msgs = getattr(settings, 'max_messages_count', 50)
+    for msg in reversed(messages[-max_msgs:]):
+        msg_content = getattr(msg, "content", str(msg))
+        if isinstance(msg_content, list):
+            msg_content = str(msg_content[0]) if msg_content else ""
+        chunk = msg_content[: max(budget * 2, 200)]
+        if not chunk:
+            break
+        msg_parts.insert(0, chunk)
+
+    parts = [core, log_text]
+    if content_text:
+        parts.append(f"Page contents:\n{content_text}")
     return "\n\n".join(parts)
 
 
