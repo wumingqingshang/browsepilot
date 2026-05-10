@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def check_critical(self):
-        if not self.openai_api_key:
+        if not self.openai_api_key.strip():
             raise ValueError(
                 "OPENAI_API_KEY is required. "
                 "Set it in .env or as an environment variable."
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         return self
 
     class Config:
-        env_file = str(Path(__file__).resolve().parent.parent.parent / ".env")
+        env_file = str(ENV_PATH)
         env_file_encoding = "utf-8"
 
 
