@@ -429,20 +429,78 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
 
 # --- Reflect node: two-level reflection ---
 
-HEURISTIC_CHECK_PROMPT = """Quick check of the last execution step result. Look for these issues:
-1. Page content too short or empty (< 50 meaningful Chinese/English characters)
-2. URL was redirected to an unexpected domain (e.g., WiFi login page, captcha page)
-3. Multiple consecutive steps produced very similar results (possible dead loop)
-4. Page has too few interactive elements to complete the task
+def _run_heuristic_checks(state: AgentState) -> dict:
+    """Code-level heuristic checks on the last execution step. Zero LLM cost.
 
-Last execution step result (JSON):
-{last_result}
+    Returns dict with keys: has_issue, issue_type, detail
+    """
+    if not state.get("execution_log"):
+        return {"has_issue": False, "issue_type": None, "detail": ""}
 
-Previous step summaries for context:
-{previous_summaries}
+    last_entry = state["execution_log"][-1]
+    last_result = last_entry.get("result", {})
+    if not isinstance(last_result, dict):
+        return {"has_issue": False, "issue_type": None, "detail": ""}
 
-Return JSON: {{"has_issue": true/false, "issue_type": "content_short|domain_mutation|similar_results|few_elements|null", "detail": "brief description of the issue"}}
-Return ONLY JSON. If no issues, return {{"has_issue": false, "issue_type": null, "detail": ""}}."""
+    # Check 1: Page content too short
+    content_text = last_result.get("result", last_result.get("content", ""))
+    if isinstance(content_text, str) and content_text.strip():
+        # Strip HTML tags for meaningful text length check
+        import re as _re
+        clean = _re.sub(r"<[^>]+>", "", content_text).strip()
+        if len(clean) < 50:
+            return {
+                "has_issue": True,
+                "issue_type": "content_short",
+                "detail": f"Page content only {len(clean)} meaningful characters",
+            }
+
+    # Check 2: URL domain check — compare navigate result with expected domain
+    step = last_entry.get("step", "")
+    last_url = last_result.get("url", "")
+    if last_url and step:
+        # Extract expected domain from step description
+        import re as _re
+        url_match = _re.search(r"https?://([^/\s]+)", step)
+        if url_match:
+            expected_domain = url_match.group(1)
+            actual_domain = _re.sub(r"^https?://", "", last_url).split("/")[0]
+            if expected_domain not in actual_domain and actual_domain not in expected_domain:
+                return {
+                    "has_issue": True,
+                    "issue_type": "domain_mutation",
+                    "detail": f"Expected {expected_domain}, got {actual_domain}",
+                }
+
+    # Check 3: Consecutive similar results (dead loop detection)
+    recent = state["execution_log"][-3:]
+    if len(recent) >= 3:
+        texts = []
+        for entry in recent:
+            r = entry.get("result", {})
+            if isinstance(r, dict):
+                t = r.get("result", r.get("content", ""))
+                texts.append(str(t)[:200] if isinstance(t, str) else "")
+        if all(texts) and len(set(texts)) <= 1:
+            return {
+                "has_issue": True,
+                "issue_type": "similar_results",
+                "detail": "Last 3 steps produced identical results",
+            }
+
+    # Check 4: Too few interactive elements
+    structure = last_result.get("structure", {})
+    if isinstance(structure, dict):
+        input_count = len(structure.get("inputs", []))
+        button_count = len(structure.get("buttons", []))
+        if input_count + button_count < 3 and "get_page_structure" in last_entry.get("tool", ""):
+            return {
+                "has_issue": True,
+                "issue_type": "few_elements",
+                "detail": f"Only {input_count} inputs + {button_count} buttons found",
+            }
+
+    return {"has_issue": False, "issue_type": None, "detail": ""}
 
 
 COMPLETION_CHECK_PROMPT = """User's original task: {task}
@@ -597,39 +655,11 @@ async def reflect_node(state: AgentState) -> dict:
     """Analyze the last execution result and decide next action (two-level reflection)."""
     logger.info("[reflect_node] Reflecting on execution...")
 
-    # Level 1: Heuristic check on last step (LLM-based fast judgment)
-    heuristic_result = None
-    if state.get("execution_log"):
-        last_entry = state["execution_log"][-1]
-        previous = state["execution_log"][-4:-1]  # up to 3 previous
-
-        # Build context for heuristic check
-        last_result_str = json.dumps(last_entry.get("result", {}), ensure_ascii=False)[:1000]
-        previous_summaries = "\n".join(
-            f"- {e.get('step', '')}: {str(e.get('result', {}).get('status', 'unknown'))}"
-            for e in previous
-        )
-
-        heuristic_context = HEURISTIC_CHECK_PROMPT.format(
-            last_result=last_result_str,
-            previous_summaries=previous_summaries or "(none)",
-        )
-
-        # Use get_llm() for fast heuristic check
-        try:
-            check_llm = get_llm()
-            heuristic_result, _ = await parse_llm_json(
-                llm=check_llm,
-                messages=[
-                    SystemMessage(content=heuristic_context),
-                    HumanMessage(content="请检查执行结果是否存在问题"),
-                ],
-                node_name="reflect_heuristic",
-                fallback={"has_issue": False, "issue_type": None, "detail": ""},
-            )
-        except Exception as e:
-            logger.warning("[reflect_node] Heuristic check failed: {}", e)
-            heuristic_result = {"has_issue": False, "issue_type": None, "detail": ""}
+    # Level 1: Heuristic check on last step (code-level, zero LLM cost)
+    heuristic_result = _run_heuristic_checks(state)
+    if heuristic_result.get("has_issue"):
+        logger.info("[reflect_node] Heuristic check found issue: {} — {}",
+                    heuristic_result.get("issue_type"), heuristic_result.get("detail"))
 
     # Level 1 continued: check if step failed
     last_step_failed_result = _last_step_failed(state)
