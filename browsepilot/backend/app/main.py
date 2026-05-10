@@ -112,7 +112,7 @@ async def chat_stream(request: Request):
             }
 
             graph_config = {
-                "recursion_limit": 30,
+                "recursion_limit": 100,
                 "configurable": {"thread_id": session_id},
             }
 

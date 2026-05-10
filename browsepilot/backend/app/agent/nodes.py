@@ -690,10 +690,27 @@ async def reflect_node(state: AgentState) -> dict:
 
 
 def _build_replan_context(state: AgentState):
-    """Build replan context, optionally with vision-enabled screenshots."""
+    """Build replan context, optionally with vision-enabled screenshots.
+
+    Content fields (page HTML/text) are truncated to avoid token explosion.
+    """
     text = f"Original task: {state['task']}\n\n"
     text += "Execution log:\n"
-    text += f"{json.dumps(state.get('execution_log', [])[-5:], ensure_ascii=False, indent=2)}\n"
+
+    # Build truncated execution log — strip large content fields
+    truncated_log = []
+    for entry in state.get("execution_log", [])[-5:]:
+        e = dict(entry)
+        result = e.get("result", {})
+        if isinstance(result, dict):
+            r = dict(result)
+            # Truncate page content and screenshot data to avoid token explosion
+            for key in ("result", "content", "screenshot_base64"):
+                if key in r and isinstance(r[key], str):
+                    r[key] = r[key][:500] + "..." if len(r[key]) > 500 else r[key]
+            e["result"] = r
+        truncated_log.append(e)
+    text += f"{json.dumps(truncated_log, ensure_ascii=False, indent=2)}\n"
     text += f"\nCurrent plan (failed): {json.dumps(state.get('plan', []), ensure_ascii=False)}\n"
     text += f"\nRetry count: {state.get('retry_count', 0)}\n"
 
