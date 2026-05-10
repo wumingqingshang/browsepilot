@@ -663,6 +663,24 @@ async def reflect_node(state: AgentState) -> dict:
     """Analyze the last execution result and decide next action (two-level reflection)."""
     logger.info("[reflect_node] Reflecting on execution...")
 
+    # Circuit breaker checks — force answer with reason
+    if state.get("consecutive_failures", 0) >= 3:
+        logger.warning("[reflect_node] Circuit breaker: {} consecutive failures", state["consecutive_failures"])
+        return {"plan": [], "need_replan": False,
+                "stop_reason": f"连续 {state['consecutive_failures']} 步执行失败，为避免无限重试，按照现有搜集到的材料组织回答"}
+    if state.get("replan_count", 0) >= 2:
+        logger.warning("[reflect_node] Too many replans: {}", state["replan_count"])
+        return {"plan": [], "need_replan": False,
+                "stop_reason": f"已进行 {state['replan_count']} 次重新规划，当前任务可能无法通过浏览器自动化完成，按照现有搜集到的材料组织回答"}
+    if state.get("stagnation_count", 0) >= 3:
+        logger.warning("[reflect_node] Stagnation detected: {}", state["stagnation_count"])
+        return {"plan": [], "need_replan": False,
+                "stop_reason": "连续多步结果高度相似，判断陷入死循环，按照现有搜集到的材料组织回答"}
+    if len(state.get("execution_log", [])) >= 10:
+        logger.warning("[reflect_node] Step limit reached: {}", len(state["execution_log"]))
+        return {"plan": [], "need_replan": False,
+                "stop_reason": "执行步骤已达上限，按照现有搜集到的材料组织回答"}
+
     # Level 1: Heuristic check on last step (code-level, zero LLM cost)
     heuristic_result = _run_heuristic_checks(state)
     if heuristic_result.get("has_issue"):
@@ -934,8 +952,18 @@ async def answer_node(state: AgentState) -> dict:
         compressed_log = compress_execution_log(state["execution_log"])
         page_contents = _extract_page_contents(state["execution_log"])
 
+        # Build system prompt — include stop_reason if task was interrupted
+        system_prompt = "You are BrowsePilot. Based on the browser execution results below, answer the user's question."
+        stop_reason = state.get("stop_reason", "")
+        if stop_reason:
+            system_prompt += (
+                f"\n\n注意：本次任务因以下原因被中断，未完整执行所有步骤——{stop_reason}。"
+                "请在回答开头向用户说明此情况（用自然的语言描述原因），"
+                "然后根据已收集到的信息尽最大努力回答用户的问题。"
+            )
+
         context = build_context_with_budget(
-            system_prompt="You are BrowsePilot. Based on the browser execution results below, answer the user's question.",
+            system_prompt=system_prompt,
             task=state["task"],
             messages=state.get("messages", []),
             execution_log=state["execution_log"],
