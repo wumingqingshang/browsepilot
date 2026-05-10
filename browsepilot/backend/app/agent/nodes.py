@@ -490,16 +490,16 @@ def _run_heuristic_checks(state: AgentState) -> dict:
                 "detail": "Last 3 steps produced identical results",
             }
 
-    # Check 4: Too few interactive elements
+    # Check 4: No interactive elements (page likely broken or blank)
     structure = last_result.get("structure", {})
     if isinstance(structure, dict):
         input_count = len(structure.get("inputs", []))
         button_count = len(structure.get("buttons", []))
-        if input_count + button_count < 3 and "get_page_structure" in last_entry.get("tool", ""):
+        if input_count == 0 and button_count == 0 and "get_page_structure" in last_entry.get("tool", ""):
             return {
                 "has_issue": True,
                 "issue_type": "few_elements",
-                "detail": f"Only {input_count} inputs + {button_count} buttons found",
+                "detail": "No interactive elements found — page may be blank or broken",
             }
 
     return {"has_issue": False, "issue_type": None, "detail": ""}

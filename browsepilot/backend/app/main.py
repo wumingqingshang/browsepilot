@@ -56,7 +56,7 @@ def filter_user_input(text: str) -> str:
 async def chat_stream(request: Request):
     body = await request.json()
     task = body.get("task", "")
-    session_id = body.get("session_id", str(uuid.uuid4())[:8])
+    session_id = body.get("session_id") or str(uuid.uuid4())[:8]
 
     task = filter_user_input(task)
     if not task:
