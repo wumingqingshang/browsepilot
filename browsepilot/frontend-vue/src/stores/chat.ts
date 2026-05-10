@@ -45,8 +45,8 @@ export const useChatStore = defineStore('chat', {
         case 'thinking_status':
           this.phase = d.phase
           this.phaseMessage = d.message || ''
-          if (d.step_index) this.currentStepIndex = d.step_index
-          if (d.total_steps) this.totalSteps = d.total_steps
+          // Don't set currentStepIndex here — thinking_status step_index is
+          // global across replans. step_start handles plan-relative increment.
           break
 
         case 'plan_generated':

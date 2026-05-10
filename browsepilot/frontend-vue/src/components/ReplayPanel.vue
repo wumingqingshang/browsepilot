@@ -94,10 +94,10 @@ watch(currentSessionId, async (id) => {
   await loadReplay(id)
 }, { immediate: true })
 
-// Re-fetch replay when task completes (processing -> false)
-watch(() => chatStore.processing, async (wasProcessing, isNowIdle) => {
-  if (wasProcessing && !isNowIdle && chatStore.sessionId) {
-    await loadReplay(chatStore.sessionId)
+// Re-fetch replay when task completes (processing: true -> false)
+watch(() => chatStore.processing, (newVal, oldVal) => {
+  if (oldVal && !newVal && chatStore.sessionId) {
+    loadReplay(chatStore.sessionId)
   }
 })
 
