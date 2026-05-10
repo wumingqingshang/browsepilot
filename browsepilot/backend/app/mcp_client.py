@@ -16,9 +16,8 @@ class MCPClient:
             "type": "streamable-http",
             "url": "http://localhost:8090/mcp",
         }
-        self._transport = create_transport(self.server_config)
+        self._transport = None
         self._session: ClientSession | None = None
-        self._streams = None
         self._tools: list[dict] = []
 
     @property
@@ -29,6 +28,8 @@ class MCPClient:
         """Connect to MCP server via transport abstraction and discover available tools."""
         last_error = None
         for attempt in range(max_retries):
+            # Create fresh transport per attempt to avoid anyio cancel scope conflicts
+            transport = create_transport(self.server_config)
             try:
                 logger.info(
                     "Connecting to MCP server via {} transport (attempt {}/{})",
@@ -36,8 +37,7 @@ class MCPClient:
                     attempt + 1,
                     max_retries,
                 )
-                read, write = await self._transport.connect()
-                self._streams = (read, write)
+                read, write = await transport.connect()
                 try:
                     self._session = ClientSession(read, write)
                     await self._session.__aenter__()
@@ -52,8 +52,10 @@ class MCPClient:
                         for t in tools_result.tools
                     ]
                 except Exception:
-                    await self._transport.close()
+                    await transport.close()
+                    self._session = None
                     raise
+                self._transport = transport
                 logger.info("Discovered {} tools: {}", len(self._tools), [t["name"] for t in self._tools])
                 return self._tools
             except Exception as e:
