@@ -32,9 +32,9 @@ def repair_json(candidate: str) -> str:
     """Fix common JSON errors: trailing commas, single-quote keys/values."""
     # Remove trailing commas before } or ]
     candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-    # Single-quoted keys: 'key': → "key":
+    # Single-quoted keys: 'key': -> "key":
     candidate = re.sub(r"'([^']*)'\s*:", r'"\1":', candidate)
-    # Single-quoted values: : 'value' → : "value"
+    # Single-quoted values: : 'value' -> : "value"
     candidate = re.sub(r":\s*'([^']*)'", r': "\1"', candidate)
     return candidate
 
@@ -86,6 +86,31 @@ async def parse_llm_json(
     return fallback, None
 
 
+def accumulate_tokens(existing: dict, usage_or_response, node_name: str = "") -> dict:
+    """Accumulate token usage from an LLM response or usage_metadata object."""
+    if not usage_or_response:
+        return dict(existing)
+
+    # If it's an AIMessage with usage_metadata, extract it
+    if hasattr(usage_or_response, "usage_metadata"):
+        usage = usage_or_response.usage_metadata
+    else:
+        usage = usage_or_response
+
+    if not usage:
+        return dict(existing)
+
+    result = dict(existing)
+    # Handle both dict-like and object access patterns
+    if hasattr(usage, "get"):
+        result["prompt"] = result.get("prompt", 0) + (usage.get("input_tokens") or 0)
+        result["completion"] = result.get("completion", 0) + (usage.get("output_tokens") or 0)
+    else:
+        result["prompt"] = result.get("prompt", 0) + (getattr(usage, "input_tokens", None) or 0)
+        result["completion"] = result.get("completion", 0) + (getattr(usage, "output_tokens", None) or 0)
+    return result
+
+
 def get_llm():
     """Get the main (big) LLM instance for plan/execute/reflect/replan/answer."""
     return ChatOpenAI(
@@ -124,9 +149,9 @@ CLASSIFY_PROMPT = """You are an intent classifier. Analyze the user's input and 
    - "Show me what's on the Baidu homepage"
 
 Rules:
-- Casual chat, greetings, asking who you are → chitchat
-- Knowledge questions that DON'T need a browser → knowledge_qa
-- Tasks requiring opening web pages, clicking, typing, screenshots → browser_task
+- Casual chat, greetings, asking who you are -> chitchat
+- Knowledge questions that DON'T need a browser -> knowledge_qa
+- Tasks requiring opening web pages, clicking, typing, screenshots -> browser_task
 
 Return JSON: {"intent": "chitchat|knowledge_qa|browser_task"}
 Return ONLY JSON, nothing else."""
@@ -203,6 +228,33 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
         "completion": response.usage_metadata.get("output_tokens", 0) if response.usage_metadata else 0,
     }
 
+    # Self-check: can this plan answer the user's question?
+    self_check_prompt = f"""User task: {state["task"]}
+Generated plan: {json.dumps(plan, ensure_ascii=False)}
+
+After executing this plan, will the collected information be sufficient to answer the user's original question?
+If not, append the missing steps to the end of the plan.
+Return JSON: {{"sufficient": true/false, "extra_steps": []}}
+Return ONLY JSON."""
+
+    try:
+        check_llm = get_llm()
+        check_result, check_usage = await parse_llm_json(
+            llm=check_llm,
+            messages=[SystemMessage(content=self_check_prompt)],
+            node_name="plan_self_check",
+            fallback={"sufficient": True, "extra_steps": []},
+        )
+        if not check_result.get("sufficient", True):
+            extra = check_result.get("extra_steps", [])
+            if extra:
+                plan.extend(extra)
+                logger.info("[plan_node] Self-check added {} extra steps", len(extra))
+        if check_usage:
+            token_usage = accumulate_tokens(token_usage, check_usage, "plan")
+    except Exception as e:
+        logger.warning("[plan_node] Self-check failed, using plan as-is: {}", e)
+
     return {
         "plan": plan,
         "retry_count": 0,
@@ -210,6 +262,23 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
         "execution_log": [],
         "token_usage": token_usage,
     }
+
+
+EXECUTE_SYSTEM_PROMPT = """You are a browser automation execution expert.
+Available tools:
+{tools_desc}
+
+Core rules:
+1. Before clicking or typing, ALWAYS use get_page_structure first to find actual selectors
+2. ONLY use selectors returned by get_page_structure — never invent or guess selectors
+3. Execute ONE operation at a time
+
+Recent execution context:
+{recent_context}
+
+Select the next tool to execute based on the user's task and current context.
+Return JSON: {{"tool": "tool_name", "arguments": {{...}}, "step": "brief step description"}}
+Return ONLY JSON."""
 
 
 async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> dict:
@@ -246,24 +315,13 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
         elif isinstance(result, dict) and result.get("content"):
             recent_context += f"\n页面文本摘要（前500字）：{result['content'][:500]}\n"
 
-    tool_selection_prompt = (
-        '你是一个浏览器操作执行器。当前需要执行的步骤是："' + current_step + '"\n\n'
-        "可用工具：\n" + tools_desc + "\n\n"
-        + recent_context + "\n"
-        '关键规则（必须遵守，违反会导致任务失败）：\n'
-        '1. 如果上方提供了"页面可用元素"，你必须从其中选择一个匹配的 selector，完全照抄，不得修改\n'
-        '2. 例如：如果结构中有 {"selector": "#kw", "tag": "input", "type": "text"}，输入步骤必须用 "#kw"\n'
-        '3. 绝对禁止使用自己编造的选择器（如 #chat-textarea、#chat-submit-button、input[type="text"]）\n'
-        '4. 如果还没有页面结构信息，先调用 get_page_structure 获取\n'
-        '5. get_content 返回页面文本，可用于理解页面内容\n\n'
-        '请用JSON格式返回要调用的工具和参数：\n'
-        '{"tool": "工具名", "arguments": {"参数名": "参数值"}}\n'
-        '如果这个步骤不需要浏览器工具（例如等待、思考、分析类步骤），返回：{"tool": "none", "arguments": {}}\n'
-        "只返回JSON对象，不要其他内容。"
+    prompt = EXECUTE_SYSTEM_PROMPT.format(
+        tools_desc=tools_desc,
+        recent_context=recent_context,
     )
 
     response = await llm.ainvoke([
-        SystemMessage(content=tool_selection_prompt),
+        SystemMessage(content=prompt),
         HumanMessage(content=current_step),
     ])
 
@@ -342,74 +400,269 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
     }
 
 
+# --- Reflect node: two-level reflection ---
+
+HEURISTIC_CHECK_PROMPT = """Quick check of the last execution step result. Look for these issues:
+1. Page content too short or empty (< 50 meaningful Chinese/English characters)
+2. URL was redirected to an unexpected domain (e.g., WiFi login page, captcha page)
+3. Multiple consecutive steps produced very similar results (possible dead loop)
+4. Page has too few interactive elements to complete the task
+
+Last execution step result (JSON):
+{last_result}
+
+Previous step summaries for context:
+{previous_summaries}
+
+Return JSON: {{"has_issue": true/false, "issue_type": "content_short|domain_mutation|similar_results|few_elements|null", "detail": "brief description of the issue"}}
+Return ONLY JSON. If no issues, return {{"has_issue": false, "issue_type": null, "detail": ""}}."""
+
+
+COMPLETION_CHECK_PROMPT = """User's original task: {task}
+
+Summary of executed steps and collected information:
+{execution_summary}
+
+Key page contents collected:
+{page_contents_summary}
+
+Is the collected information sufficient to adequately answer the user's question?
+- If SUFFICIENT: return {{"action": "answer"}}
+- If NOT SUFFICIENT: return {{"action": "continue", "extra_steps": ["specific step 1", "specific step 2", ...]}}
+  Maximum 3 extra steps. Each step should be a clear, executable browser action.
+Return ONLY JSON."""
+
+
+REFLECT_SYSTEM_PROMPT = """You are a browser automation reflection expert. Analyze the execution result and decide the next action.
+
+If stagnation warning is present: the previous replan produced a highly similar plan. You MUST try a fundamentally different approach — change operation order, try a different navigation path, or fall back to a search engine. If no viable alternative exists, choose answer.
+
+Return JSON: {{"action": "retry|replan|answer", "reason": "brief explanation"}}
+Return ONLY JSON."""
+
+
+def _last_step_failed(state: AgentState) -> bool:
+    """Check if the last execution step resulted in an error."""
+    if not state.get("execution_log"):
+        return False
+    last = state["execution_log"][-1]
+    result = last.get("result", {})
+    return isinstance(result, dict) and result.get("status") == "error"
+
+
+async def _completion_check(state: AgentState) -> dict:
+    """Check if collected info is sufficient to answer user's question."""
+    logger.info("[reflect_node] Running completion check...")
+
+    # Build execution summary
+    execution_summary = "\n".join(
+        f"- {e.get('step', '')}: {str(e.get('result', {}).get('status', 'unknown'))}"
+        for e in state.get("execution_log", [])[-10:]
+    )
+
+    # Extract page contents
+    page_contents = []
+    for e in state.get("execution_log", []):
+        result = e.get("result", {})
+        if isinstance(result, dict):
+            content = result.get("result", result.get("content", ""))
+            if isinstance(content, str) and len(content) > 20:
+                page_contents.append(content[:500])
+
+    context = COMPLETION_CHECK_PROMPT.format(
+        task=state["task"],
+        execution_summary=execution_summary,
+        page_contents_summary="\n---\n".join(page_contents[-5:]) or "(none)",
+    )
+
+    llm = get_llm()
+    check_result, usage = await parse_llm_json(
+        llm=llm,
+        messages=[SystemMessage(content=context)],
+        node_name="reflect_completion",
+        fallback={"action": "answer"},
+    )
+
+    action = check_result.get("action", "answer")
+    extra_steps = check_result.get("extra_steps", [])
+
+    result = {
+        "completion_check_count": state.get("completion_check_count", 0) + 1,
+    }
+
+    if usage:
+        result["token_usage"] = accumulate_tokens(state.get("token_usage", {}), usage, "reflect")
+
+    if action == "continue" and extra_steps:
+        logger.info("[reflect_node] Info insufficient, adding {} extra steps", len(extra_steps))
+        result["plan"] = extra_steps
+        result["need_replan"] = False
+    else:
+        logger.info("[reflect_node] Info sufficient, routing to answer")
+        result["need_replan"] = False
+
+    return result
+
+
+async def _llm_reflection(state: AgentState, heuristic_result: dict | None = None) -> dict:
+    """LLM-based deep reflection on step failure or heuristic issues."""
+    logger.info("[reflect_node] Running LLM deep reflection...")
+
+    # Build context
+    context = f"User task: {state['task']}\n\n"
+
+    if state.get("execution_log"):
+        last = state["execution_log"][-1]
+        context += f"Last step: {last.get('step', '')}\n"
+        context += f"Result: {json.dumps(last.get('result', {}), ensure_ascii=False)[:500]}\n"
+
+    if heuristic_result and heuristic_result.get("has_issue"):
+        context += f"\nHeuristic check found issue: {heuristic_result.get('issue_type')} — {heuristic_result.get('detail')}\n"
+
+    if state.get("stagnation_warning"):
+        context += """\n\n⚠ IMPORTANT WARNING: The previous replan produced a plan highly similar to the old one (>80% similarity).
+Current strategy may be in a dead loop. You MUST try a fundamentally different approach:
+- Change the order of operations
+- Try a different navigation path
+- Fall back to a search engine if the current page cannot complete the task
+If no viable alternative exists, select answer."""
+
+    context += f"\n\nCurrent remaining plan: {json.dumps(state.get('plan', []), ensure_ascii=False)}\n"
+
+    messages = [
+        SystemMessage(content=REFLECT_SYSTEM_PROMPT),
+        HumanMessage(content=context),
+    ]
+
+    llm = get_llm()
+    reflection, usage = await parse_llm_json(
+        llm=llm,
+        messages=messages,
+        node_name="reflect_llm",
+        fallback={"action": "answer", "reason": "reflection failed, defaulting to answer"},
+    )
+
+    action = reflection.get("action", "answer")
+    logger.info("[reflect_node] LLM reflection decision: {} — {}", action, reflection.get("reason", ""))
+
+    result = {}
+    if usage:
+        result["token_usage"] = accumulate_tokens(state.get("token_usage", {}), usage, "reflect")
+
+    if action == "retry":
+        if state.get("retry_count", 0) >= 2:
+            # Too many retries — force replan
+            result["need_replan"] = True
+        else:
+            result["need_replan"] = False
+    elif action == "replan":
+        result["need_replan"] = True
+    else:
+        result["need_replan"] = False  # answer
+
+    return result
+
+
 async def reflect_node(state: AgentState) -> dict:
-    """Analyze the last execution result and decide next action."""
-    if not state["execution_log"]:
+    """Analyze the last execution result and decide next action (two-level reflection)."""
+    logger.info("[reflect_node] Reflecting on execution...")
+
+    # Level 1: Heuristic check on last step (LLM-based fast judgment)
+    heuristic_result = None
+    if state.get("execution_log"):
+        last_entry = state["execution_log"][-1]
+        previous = state["execution_log"][-4:-1]  # up to 3 previous
+
+        # Build context for heuristic check
+        last_result_str = json.dumps(last_entry.get("result", {}), ensure_ascii=False)[:1000]
+        previous_summaries = "\n".join(
+            f"- {e.get('step', '')}: {str(e.get('result', {}).get('status', 'unknown'))}"
+            for e in previous
+        )
+
+        heuristic_context = HEURISTIC_CHECK_PROMPT.format(
+            last_result=last_result_str,
+            previous_summaries=previous_summaries or "(none)",
+        )
+
+        # Use get_llm() for fast heuristic check
+        try:
+            check_llm = get_llm()
+            heuristic_result, _ = await parse_llm_json(
+                llm=check_llm,
+                messages=[SystemMessage(content=heuristic_context)],
+                node_name="reflect_heuristic",
+                fallback={"has_issue": False, "issue_type": None, "detail": ""},
+            )
+        except Exception as e:
+            logger.warning("[reflect_node] Heuristic check failed: {}", e)
+            heuristic_result = {"has_issue": False, "issue_type": None, "detail": ""}
+
+    # Level 1 continued: check if step failed
+    last_step_failed_result = _last_step_failed(state)
+
+    # Level 2: Deep reflection triggers
+    has_plan = state.get("plan") and len(state["plan"]) > 0
+
+    if not has_plan:
+        # Plan is empty — completion check
+        completion_check_count = state.get("completion_check_count", 0)
+        if completion_check_count >= 1:
+            # Already checked once, don't loop
+            logger.info("[reflect_node] Completion check already done, routing to answer")
+            return {"need_replan": False}
+
+        return await _completion_check(state)
+
+    if not last_step_failed_result and (not heuristic_result or not heuristic_result.get("has_issue")):
+        # Step succeeded and no heuristic issues — continue
+        logger.info("[reflect_node] Step OK, continuing execution")
         return {"need_replan": False}
 
-    last = state["execution_log"][-1]
-    is_error = isinstance(last["result"], dict) and last["result"].get("status") == "error"
-    error_msg = last["result"].get("error", "") if isinstance(last["result"], dict) else ""
+    # Level 2: LLM deep reflection
+    return await _llm_reflection(state, heuristic_result)
 
-    if not is_error:
-        logger.info("[reflect_node] Step succeeded: {}", last["step"])
-        return {"need_replan": False, "retry_count": 0}
 
-    logger.info("[reflect_node] Step failed: {} — error: {}", last["step"], error_msg)
+# --- Replan node with vision context ---
 
-    if state["retry_count"] < 2:
-        logger.info("[reflect_node] Retrying (attempt {})", state["retry_count"] + 1)
-        return {"need_replan": False, "retry_count": state["retry_count"] + 1}
 
-    # Max retries reached — use LLM to analyze and prepare for replan
-    logger.info("[reflect_node] Max retries reached, triggering replan")
-    llm = get_llm()
+def _build_replan_context(state: AgentState):
+    """Build replan context, optionally with vision-enabled screenshots."""
+    text = f"Original task: {state['task']}\n\n"
+    text += "Execution log:\n"
+    text += f"{json.dumps(state.get('execution_log', [])[-5:], ensure_ascii=False, indent=2)}\n"
+    text += f"\nCurrent plan (failed): {json.dumps(state.get('plan', []), ensure_ascii=False)}\n"
+    text += f"\nRetry count: {state.get('retry_count', 0)}\n"
 
-    # Try screenshot if vision enabled, but gracefully degrade
-    analysis_context = f"""失败步骤：{last['step']}
-错误信息：{error_msg}
-工具：{last['tool']}
-已完成步骤：{json.dumps([e['step'] for e in state['execution_log']], ensure_ascii=False)}"""
+    if not settings.llm_vision_enabled:
+        return text  # Plain text only
 
-    if settings.llm_vision_enabled and last.get("screenshot_path"):
-        try:
-            with open(last["screenshot_path"], "rb") as f:
-                img_b64 = base64.b64encode(f.read()).decode("utf-8")
-            logger.info("[reflect_node] Using screenshot for visual analysis")
-        except Exception as e:
-            logger.warning("[reflect_node] Cannot read screenshot, falling back to text-only: {}", e)
-            img_b64 = None
-    else:
-        img_b64 = None
+    # Build multimodal content with screenshots
+    content: list = [{"type": "text", "text": text}]
 
-    analysis_prompt = f"""你是一个浏览器自动化调试专家。一个操作步骤失败了，请分析原因。
+    for entry in state.get("execution_log", [])[-3:]:
+        result = entry.get("result", {})
+        if isinstance(result, dict) and result.get("status") == "error":
+            screenshot_path = entry.get("screenshot_path", "")
+            if screenshot_path and os.path.exists(screenshot_path):
+                try:
+                    with open(screenshot_path, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode("utf-8")
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{b64}"},
+                    })
+                    logger.info("[replan_node] Added screenshot for vision analysis")
+                except Exception as e:
+                    logger.warning("[replan_node] Failed to encode screenshot: {}", e)
 
-{analysis_context}
-
-请用简短的一句话分析失败原因，并给出替代方案建议。"""
-
-    try:
-        response = await llm.ainvoke([HumanMessage(content=analysis_prompt)])
-        analysis = response.content.strip()
-    except Exception as e:
-        logger.warning("[reflect_node] LLM analysis failed: {}, using fallback", e)
-        analysis = f"操作 '{last['step']}' 失败，尝试替代方案"
-
-    return {
-        "need_replan": True,
-        "retry_count": 0,
-        "messages": state["messages"] + [HumanMessage(content=f"反思结果: {analysis}")],
-    }
+    return content
 
 
 async def replan_node(state: AgentState, mcp_client) -> dict:
     """Generate a new plan based on what has been done and what failed."""
-    logger.info("[replan_node] Regenerating plan based on current state")
+    logger.info("[replan_node] Regenerating plan...")
     llm = get_llm()
-
-    completed = [e["step"] for e in state["execution_log"] if e.get("result", {}).get("status") != "error"]
-    failed = [e for e in state["execution_log"] if e.get("result", {}).get("status") == "error"]
-    failed_desc = "\n".join(f"  - {e['step']}: {e.get('result', {}).get('error', 'unknown')}" for e in failed)
 
     tools_schema = await mcp_client.get_tools_schema()
     tools_desc = "\n".join(
@@ -417,22 +670,33 @@ async def replan_node(state: AgentState, mcp_client) -> dict:
         for t in tools_schema
     )
 
-    replan_prompt = f"""你是一个浏览器自动化规划专家。原计划部分失败，需要重新规划剩余步骤。
+    # Build context (with or without vision)
+    context_content = _build_replan_context(state)
 
-原始任务：{state['task']}
-已完成步骤：{json.dumps(completed, ensure_ascii=False)}
-失败步骤：
-{failed_desc}
-
-可用工具：
+    REPLAN_PROMPT = f"""You are a browser automation planning expert. Available tools:
 {tools_desc}
 
-请生成一个新的JSON执行步骤列表，绕过已失败的步骤，尝试替代方案。
-格式：["步骤1", "步骤2", ...]
-只返回JSON数组。"""
+The previous execution plan failed. Analyze the failure context (and any screenshots provided) to create a new, better plan.
+
+Important: generate a DIFFERENT plan from the failed one. Try alternative approaches.
+
+Generate a JSON array of execution steps. Format: ["step 1", "step 2", ...]
+Return ONLY the JSON array, nothing else."""
+
+    # Build messages — HumanMessage accepts both string and list content
+    if isinstance(context_content, list):
+        messages = [
+            SystemMessage(content=REPLAN_PROMPT),
+            HumanMessage(content=context_content),
+        ]
+    else:
+        messages = [
+            SystemMessage(content=REPLAN_PROMPT),
+            HumanMessage(content=context_content),
+        ]
 
     try:
-        response = await llm.ainvoke([HumanMessage(content=replan_prompt)])
+        response = await llm.ainvoke(messages)
         plan_text = response.content.strip()
         if "```" in plan_text:
             plan_text = plan_text.split("```")[1]
@@ -446,68 +710,81 @@ async def replan_node(state: AgentState, mcp_client) -> dict:
     return {"plan": new_plan, "need_replan": False, "retry_count": 0}
 
 
+# --- Answer node with dual-path fallback ---
+
+
+def compress_execution_log(execution_log: list, max_tokens: int = 4000) -> str:
+    """Simple compression placeholder — will be enhanced in Task 11."""
+    if len(execution_log) <= 3:
+        return "\n".join(f"- {e.get('step', '')}: {str(e.get('result', {}))[:200]}" for e in execution_log)
+    recent = execution_log[-3:]
+    older = execution_log[:-3]
+    parts = [f"- {e.get('step', '')} [{e.get('result', {}).get('status', 'unknown')}]" for e in older]
+    parts.append("---")
+    parts.extend(f"- {e.get('step', '')}: {str(e.get('result', {}))[:300]}" for e in recent)
+    return "\n".join(parts)
+
+
+def build_context_with_budget(
+    system_prompt: str,
+    task: str,
+    messages: list,
+    execution_log: list,
+    page_contents: list[str],
+    max_tokens: int = 8000,
+) -> str:
+    """Simple context assembly placeholder — will be enhanced in Task 11."""
+    parts = [system_prompt, f"User task: {task}"]
+    parts.append("Execution log:")
+    parts.append(compress_execution_log(execution_log))
+    if page_contents:
+        parts.append("Page contents collected:")
+        parts.extend(f"---\n{pc[:500]}" for pc in page_contents[-5:])
+    return "\n\n".join(parts)
+
+
+def _extract_page_contents(execution_log: list) -> list[str]:
+    """Extract page content strings from execution log for answer context."""
+    contents = []
+    for entry in execution_log:
+        result = entry.get("result", {})
+        if isinstance(result, dict):
+            text = result.get("result", result.get("content", ""))
+            if isinstance(text, str) and len(text) > 20:
+                contents.append(text[:1000])
+    return contents
+
+
 async def answer_node(state: AgentState) -> dict:
-    """Generate the final natural language answer based on extracted page content."""
-    logger.info("[answer_node] Generating final answer")
+    """Generate final answer. Handles both browser_task and chitchat/knowledge_qa paths."""
+    logger.info("[answer_node] Generating final answer...")
     llm = get_llm()
 
-    # Collect actual page content from execution log (get_content results)
-    page_contents = []
-    step_summaries = []
-    for e in state["execution_log"]:
-        step_info = f"- {e['step']}: "
-        result = e.get("result", {})
-        if isinstance(result, dict) and result.get("status") == "success":
-            step_info += "成功"
-            if result.get("content"):
-                content = result["content"]
-                page_contents.append({"step": e["step"], "content": content})
-                step_info += f"，提取到 {len(content)} 字内容"
-            elif result.get("structure"):
-                s = result["structure"]
-                inputs_count = len(s.get("inputs", []))
-                buttons_count = len(s.get("buttons", []))
-                step_info += f"，发现 {inputs_count} 个输入框、{buttons_count} 个按钮"
-        elif isinstance(result, dict) and result.get("status") == "error":
-            err = result.get("error", "unknown")
-            step_info += f"失败 — {err}"
-        else:
-            step_info += "完成"
-        step_summaries.append(step_info)
+    if not state.get("execution_log"):
+        # No execution happened: chitchat or knowledge_qa direct path
+        # Answer based on user task + recent messages
+        recent_messages = (state.get("messages") or [])[-10:]
+        response = await llm.ainvoke([
+            SystemMessage(content="You are BrowsePilot, a helpful AI assistant skilled in browser automation. Answer the user's question directly and concisely."),
+            *recent_messages,
+            HumanMessage(content=state["task"]),
+        ])
+    else:
+        # browser_task path: use compressed execution context
+        compressed_log = compress_execution_log(state["execution_log"])
+        page_contents = _extract_page_contents(state["execution_log"])
 
-    # Build context with actual page content
-    content_section = ""
-    if page_contents:
-        content_section = "\n\n实际提取的网页内容：\n"
-        for pc in page_contents:
-            content_section += f"\n--- 来自步骤 '{pc['step']}' ---\n{pc['content'][:3000]}\n"
+        context = build_context_with_budget(
+            system_prompt="You are BrowsePilot. Based on the browser execution results below, answer the user's question.",
+            task=state["task"],
+            messages=state.get("messages", []),
+            execution_log=state["execution_log"],
+            page_contents=page_contents,
+        )
+        response = await llm.ainvoke([SystemMessage(content=context)])
 
-    answer_prompt = f"""你是一个智能浏览器助手，请根据以下执行记录和实际提取的网页内容，回答用户问题。
-
-用户任务：{state['task']}
-
-执行过程：
-{chr(10).join(step_summaries)}
-{content_section}
-
-要求：
-1. 基于实际提取的网页内容回答用户，直接给出用户想要的信息
-2. 如果内容是搜索结果/天气/新闻等，提取关键信息并整理成易读的格式
-3. 如果适合，可以提供相关建议（如出行建议、注意事项等）
-4. 用自然语言，简洁但完整，不要只列出步骤
-5. 如果关键步骤失败导致无法获取信息，如实说明并给出替代建议
-6. 不要提及“步骤X”、执行过程等技术细节，直接给用户自然回答"""
-
-    response = await llm.ainvoke([HumanMessage(content=answer_prompt)])
-    final_answer = response.content.strip()
-
-    total_tokens = dict(state.get("token_usage", {"prompt": 0, "completion": 0}))
-    if response.usage_metadata:
-        total_tokens["prompt"] = total_tokens.get("prompt", 0) + response.usage_metadata.get("input_tokens", 0)
-        total_tokens["completion"] = total_tokens.get("completion", 0) + response.usage_metadata.get("output_tokens", 0)
-
+    token_usage = accumulate_tokens(state.get("token_usage", {}), response, "answer")
     return {
-        "final_answer": final_answer,
-        "token_usage": total_tokens,
-        "messages": state["messages"] + [HumanMessage(content=final_answer)],
+        "final_answer": response.content,
+        "token_usage": token_usage,
     }

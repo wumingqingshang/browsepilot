@@ -15,3 +15,4 @@ class AgentState(TypedDict):
     need_replan: bool
     final_answer: str
     token_usage: dict  # {"prompt": int, "completion": int}
+    completion_check_count: int  # max 1 completion check per session
