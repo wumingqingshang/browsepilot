@@ -36,6 +36,13 @@ class StreamableHTTPTransport(MCPTransport):
         if self._client:
             try:
                 await self._client.__aexit__(None, None, None)
+            except RuntimeError as e:
+                # anyio cancel scope mismatch when __aexit__ runs in a different
+                # asyncio task than __aenter__ — harmless, resources still freed
+                if "cancel scope" in str(e):
+                    logger.debug("anyio cancel scope cleanup: {}", e)
+                else:
+                    raise
             except Exception as e:
                 logger.warning("Error closing streamable-http transport: {}", e)
             self._client = None
