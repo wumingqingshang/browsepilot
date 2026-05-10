@@ -86,7 +86,7 @@ class SessionManager:
         if not sessions_dir.exists():
             return []
         results = []
-        for f in sorted(sessions_dir.glob("*.json"), reverse=True):
+        for f in sorted(sessions_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 session_id = data.get("session_id") or f.stem
