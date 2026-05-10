@@ -1,10 +1,12 @@
 // frontend-vue/src/composables/useSSE.ts
 import { ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
+import { useSessionStore } from '@/stores/session'
 import { streamChat } from '@/api/chat'
 
 export function useSSE() {
   const store = useChatStore()
+  const sessionStore = useSessionStore()
   const errorMessage = ref('')
   let controller: AbortController | null = null
 
@@ -38,6 +40,8 @@ export function useSSE() {
     } finally {
       store.finishProcessing()
       controller = null
+      // Refresh session list after task completes
+      sessionStore.fetchList()
     }
   }
 
