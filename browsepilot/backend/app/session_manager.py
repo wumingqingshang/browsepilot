@@ -3,6 +3,7 @@
 import json
 import os
 import asyncio
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -107,12 +108,109 @@ class SessionManager:
             return True
         return False
 
+    def _delete_session_files(self, session_id: str):
+        """Delete session JSON + all associated screenshots + empty dirs."""
+        filepath = Path(f"{settings.data_dir}/sessions/{session_id}.json")
+        if filepath.exists():
+            try:
+                data = json.loads(filepath.read_text(encoding="utf-8"))
+                for entry in data.get("execution_log", []):
+                    screenshot_path = entry.get("screenshot_path", "")
+                    if screenshot_path:
+                        try:
+                            Path(screenshot_path).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+            except (json.JSONDecodeError, OSError):
+                pass
+            filepath.unlink(missing_ok=True)
+
+        screenshots_dir = Path(f"{settings.data_dir}/screenshots")
+        session_screenshots = screenshots_dir / session_id
+        if session_screenshots.exists():
+            try:
+                session_screenshots.rmdir()
+            except OSError:
+                pass
+
     async def schedule_cleanup(self, session_id: str, mcp_client=None, delay_minutes: int = None) -> None:
         if delay_minutes is None:
             delay_minutes = settings.session_ttl_minutes
         await asyncio.sleep(delay_minutes * 60)
+
+        # 1. Clean up disk files
+        self._delete_session_files(session_id)
+
+        # 2. Clean up memory
         if session_id in self._active_sessions:
             del self._active_sessions[session_id]
+
+        # 3. Close MCP (if provided)
         if mcp_client:
             await mcp_client.close()
+
         logger.info("Session {} cleaned up after {} minutes", session_id, delay_minutes)
+
+    def cleanup_on_startup(self):
+        """Scan and delete sessions beyond count limit and orphan screenshots."""
+        max_count = getattr(settings, 'max_sessions_count', 100)
+        sessions_dir = Path(f"{settings.data_dir}/sessions")
+        if not sessions_dir.exists():
+            return
+
+        sessions = sorted(sessions_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        if len(sessions) > max_count:
+            for old in sessions[:-(max_count)]:
+                session_id = old.stem
+                logger.info("Startup cleanup: removing old session {}", session_id)
+                self._delete_session_files(session_id)
+
+        self._cleanup_orphan_screenshots()
+
+    def _cleanup_orphan_screenshots(self):
+        """Delete screenshot dirs with no corresponding session JSON."""
+        screenshots_dir = Path(f"{settings.data_dir}/screenshots")
+        if not screenshots_dir.exists():
+            return
+        for child in screenshots_dir.iterdir():
+            if child.is_dir():
+                session_json = Path(f"{settings.data_dir}/sessions/{child.name}.json")
+                if not session_json.exists():
+                    shutil.rmtree(child, ignore_errors=True)
+                    logger.info("Removed orphan screenshots: {}", child)
+
+    def check_storage_before_write(self) -> bool:
+        """Check data/ dir size, trigger emergency cleanup if over limit."""
+        max_storage_mb = getattr(settings, 'max_storage_mb', 500)
+        total_size = self._get_data_dir_size()
+        if total_size > max_storage_mb * 1024 * 1024:
+            logger.warning("Storage {} MB exceeds limit {} MB, emergency cleanup",
+                           total_size // (1024 * 1024), max_storage_mb)
+            self._emergency_cleanup(ratio=0.2)
+            if self._get_data_dir_size() > max_storage_mb * 1024 * 1024:
+                logger.warning("Storage still full after cleanup")
+                return False
+        return True
+
+    def _get_data_dir_size(self) -> int:
+        total = 0
+        data_dir = Path(settings.data_dir)
+        if not data_dir.exists():
+            return 0
+        for f in data_dir.rglob("*"):
+            if f.is_file():
+                try:
+                    total += f.stat().st_size
+                except OSError:
+                    pass
+        return total
+
+    def _emergency_cleanup(self, ratio: float = 0.2):
+        """Delete the oldest ratio of sessions to free space."""
+        sessions_dir = Path(f"{settings.data_dir}/sessions")
+        if not sessions_dir.exists():
+            return
+        sessions = sorted(sessions_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        to_delete = int(len(sessions) * ratio)
+        for old in sessions[:to_delete]:
+            self._delete_session_files(old.stem)

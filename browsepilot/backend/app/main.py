@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     logger.add(sys.stderr, level=settings.log_level)
     logger.add(f"{settings.data_dir}/browsepilot.log", rotation="10 MB", level="DEBUG")
     logger.info("BrowsePilot backend starting (model={})", settings.llm_model)
+    session_manager.cleanup_on_startup()
     yield
     logger.info("BrowsePilot backend shutting down")
 

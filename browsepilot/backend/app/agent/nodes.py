@@ -157,15 +157,26 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
     # Save screenshot if available
     screenshot_path = ""
     if isinstance(result, dict) and result.get("screenshot_base64"):
-        step_index = len(state["execution_log"])
-        os.makedirs(f"{settings.data_dir}/screenshots", exist_ok=True)
-        screenshot_path = f"{settings.data_dir}/screenshots/step_{step_index}_{datetime.now(timezone.utc).strftime('%H%M%S')}.png"
+        # Check storage before saving screenshot (deferred to avoid circular import)
+        skip_screenshot = False
         try:
-            with open(screenshot_path, "wb") as f:
-                f.write(base64.b64decode(result["screenshot_base64"]))
-        except Exception as e:
-            logger.warning("[execute_node] Failed to save screenshot: {}", e)
-            screenshot_path = ""
+            from backend.app.main import session_manager
+            if not session_manager.check_storage_before_write():
+                logger.warning("Skipping screenshot due to storage limit")
+                skip_screenshot = True
+        except ImportError:
+            pass  # Continue with screenshot save
+
+        if not skip_screenshot:
+            step_index = len(state["execution_log"])
+            os.makedirs(f"{settings.data_dir}/screenshots", exist_ok=True)
+            screenshot_path = f"{settings.data_dir}/screenshots/step_{step_index}_{datetime.now(timezone.utc).strftime('%H%M%S')}.png"
+            try:
+                with open(screenshot_path, "wb") as f:
+                    f.write(base64.b64decode(result["screenshot_base64"]))
+            except Exception as e:
+                logger.warning("[execute_node] Failed to save screenshot: {}", e)
+                screenshot_path = ""
 
     new_log = state["execution_log"] + [{
         "step": current_step,

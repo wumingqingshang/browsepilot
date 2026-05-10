@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     mcp_tool_timeout: int = 30
     mcp_connect_retries: int = 3
     max_active_sessions: int = 10
+    max_sessions_count: int = 100
+    max_storage_mb: int = 500
+    cleanup_interval_hours: int = 6
 
     @model_validator(mode="after")
     def check_critical(self):
