@@ -1,5 +1,6 @@
 """Application configuration via pydantic-settings."""
 
+import json
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,9 +21,6 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
     llm_vision_enabled: bool = False
-    mcp_server_url: str = "http://localhost:8090/mcp"
-    mcp_server_port: int = 8090
-    mcp_mode: str = "sse"
     browser_headless: bool = True
     browser_channel: str = ""
     browser_timeout: int = 15000
@@ -46,3 +44,22 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def load_mcp_servers() -> dict:
+    """Load MCP server configs from mcp_settings.json."""
+    path = Path(__file__).resolve().parent.parent.parent / "mcp_settings.json"
+    if not path.exists():
+        logger.warning("mcp_settings.json not found at {}", path)
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("mcpServers", {})
+
+
+def get_mcp_server_config(server_name: str = "browser-mcp") -> dict:
+    """Get config for a specific MCP server."""
+    servers = load_mcp_servers()
+    if server_name not in servers:
+        raise ValueError(f"MCP server '{server_name}' not found in mcp_settings.json")
+    return servers[server_name]

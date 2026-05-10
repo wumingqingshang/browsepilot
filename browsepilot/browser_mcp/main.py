@@ -27,4 +27,4 @@ import browser_mcp.tools.get_page_structure # noqa: F401
 from browser_mcp.server import mcp
 
 if __name__ == "__main__":
-    mcp.run(transport="sse")
+    mcp.run(transport="streamable-http")

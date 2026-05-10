@@ -1,25 +1,34 @@
-"""MCP SSE Client — connects to browser-mcp and discovers tools."""
+"""MCP client — connects to browser-mcp and discovers tools using transport abstraction."""
 
 import json
 from typing import Any
 
 from loguru import logger
 from mcp import ClientSession
-from mcp.client.sse import sse_client
+
+from backend.app.mcp_transport import create_transport
 
 
 class MCPClient:
-    def __init__(self, server_url: str = "http://localhost:8090"):
-        self.server_url = server_url
+    def __init__(self, server_config: dict | None = None):
+        self.server_config = server_config or {
+            "type": "streamable-http",
+            "url": "http://localhost:8090/mcp",
+        }
+        self._transport = create_transport(self.server_config)
         self._session: ClientSession | None = None
         self._streams = None
         self._tools: list[dict] = []
 
+    @property
+    def is_connected(self) -> bool:
+        return self._session is not None
+
     async def connect(self) -> list[dict]:
-        """Connect to MCP server via SSE and discover available tools."""
-        logger.info("Connecting to MCP server at {}", self.server_url)
-        self._streams = sse_client(self.server_url)
-        read, write = await self._streams.__aenter__()
+        """Connect to MCP server via transport abstraction and discover available tools."""
+        logger.info("Connecting to MCP server via {} transport", self.server_config.get("type", "unknown"))
+        read, write = await self._transport.connect()
+        self._streams = (read, write)
         self._session = ClientSession(read, write)
         await self._session.__aenter__()
         await self._session.initialize()
@@ -71,6 +80,7 @@ class MCPClient:
         """Cleanly disconnect from MCP server."""
         if self._session:
             await self._session.__aexit__(None, None, None)
-        if self._streams:
-            await self._streams.__aexit__(None, None, None)
+            self._session = None
+        if self._transport:
+            await self._transport.close()
         logger.info("MCP client disconnected")

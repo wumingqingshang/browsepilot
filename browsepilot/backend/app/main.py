@@ -14,7 +14,7 @@ from starlette.responses import StreamingResponse
 from loguru import logger
 import sys
 
-from backend.app.config import settings
+from backend.app.config import settings, get_mcp_server_config
 from backend.app.mcp_client import MCPClient
 from backend.app.agent.graph import build_graph
 from backend.app.agent.state import AgentState
@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     logger.remove()
     logger.add(sys.stderr, level=settings.log_level)
     logger.add(f"{settings.data_dir}/browsepilot.log", rotation="10 MB", level="DEBUG")
-    logger.info("BrowsePilot backend starting (model={}, mcp={})", settings.llm_model, settings.mcp_server_url)
+    logger.info("BrowsePilot backend starting (model={})", settings.llm_model)
     yield
     logger.info("BrowsePilot backend shutting down")
 
@@ -64,7 +64,7 @@ async def chat_stream(request: Request):
     session_manager.update(session_id, task=task)
     logger.info("Starting session {} with task: {}", session_id, task[:80])
 
-    mcp_client = MCPClient(settings.mcp_server_url)
+    mcp_client = MCPClient(get_mcp_server_config("browser-mcp"))
 
     async def event_generator():
         accumulated_state = {}
