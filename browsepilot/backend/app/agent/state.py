@@ -9,6 +9,7 @@ class AgentState(TypedDict):
     task: str
     plan: list[str]
     execution_log: list[dict]
+    degradation_log: list[dict]  # [{"node": "plan", "reason": "json_parse_failed", "timestamp": "..."}]
     retry_count: int
     need_replan: bool
     final_answer: str

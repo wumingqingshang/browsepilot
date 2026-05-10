@@ -1,6 +1,7 @@
 """LangGraph nodes: plan, execute, reflect, replan, answer."""
 
 import json
+import re
 import os
 import base64
 from datetime import datetime, timezone
@@ -11,6 +12,78 @@ from loguru import logger
 
 from backend.app.agent.state import AgentState
 from backend.app.config import settings
+
+
+def extract_json(text: str) -> str | None:
+    """Extract JSON string from LLM response. Handles markdown wrapping and extra text."""
+    # 1. Try ```json ... ``` or ``` ... ```
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if match:
+        return match.group(1).strip()
+    # 2. Find first { to last }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+    return None
+
+
+def repair_json(candidate: str) -> str:
+    """Fix common JSON errors: trailing commas, single-quote keys/values."""
+    # Remove trailing commas before } or ]
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+    # Single-quoted keys: 'key': → "key":
+    candidate = re.sub(r"'([^']*)'\s*:", r'"\1":', candidate)
+    # Single-quoted values: : 'value' → : "value"
+    candidate = re.sub(r":\s*'([^']*)'", r': "\1"', candidate)
+    return candidate
+
+
+async def parse_llm_json(
+    llm,
+    messages: list,
+    node_name: str,
+    fallback: dict,
+    max_retries: int = 1,
+) -> tuple[dict, dict | None]:
+    """Unified LLM JSON invoke + parse + retry + fallback.
+
+    Returns:
+        (parsed_dict, token_usage_dict_or_None)
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            response = await llm.ainvoke(messages)
+            usage = response.usage_metadata
+            text = response.content if hasattr(response, "content") else str(response)
+
+            candidate = extract_json(text)
+            if candidate is not None:
+                try:
+                    return json.loads(candidate), usage
+                except json.JSONDecodeError:
+                    repaired = repair_json(candidate)
+                    try:
+                        result = json.loads(repaired)
+                        logger.info("[{}] JSON repaired successfully", node_name)
+                        return result, usage
+                    except json.JSONDecodeError as e:
+                        logger.warning("[{}] JSON parse failed attempt {}: {}", node_name, attempt + 1, str(e)[:200])
+
+            if attempt < max_retries:
+                messages.append({"role": "assistant", "content": text})
+                messages.append({
+                    "role": "user",
+                    "content": "Your response format was incorrect. Return ONLY a JSON object, nothing else.",
+                })
+                continue
+
+        except Exception as e:
+            logger.error("[{}] LLM call failed: {}", node_name, str(e)[:200])
+            raise
+
+    logger.warning("[{}] JSON parse failed after {} retries, using fallback", node_name, max_retries)
+    return fallback, None
 
 
 def get_llm():
