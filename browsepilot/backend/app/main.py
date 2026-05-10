@@ -69,7 +69,6 @@ async def chat_stream(request: Request):
     mcp_client = MCPClient(get_mcp_server_config("browser-mcp"))
 
     async def event_generator():
-        accumulated_state = {}
         try:
             graph = build_graph(mcp_client, lazy_mcp=True)
             # MCP will be connected lazily when classify routes to browser_task
@@ -93,19 +92,35 @@ async def chat_stream(request: Request):
                 "completion_check_count": 0,
             }
 
-            accumulated_state = dict(initial_state)
+            graph_config = {
+                "recursion_limit": 30,
+                "configurable": {"thread_id": session_id},
+            }
 
             yield SSEData.session_created(session_id)
 
-            deadline = time.monotonic() + getattr(settings, 'session_timeout_seconds', 300)
+            # Stream with session timeout via asyncio.wait_for on each __anext__()
+            timeout = getattr(settings, 'session_timeout_seconds', 300)
+            deadline = time.monotonic() + timeout
+            astream = graph.astream(initial_state, graph_config)
+            final_state = None
 
-            async for event in graph.astream(initial_state, {"recursion_limit": 30}):
-                if time.monotonic() > deadline:
-                    logger.warning("Session {} timed out after {}s", session_id, settings.session_timeout_seconds)
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.warning("Session {} timed out after {}s", session_id, timeout)
                     yield SSEData.error("Session timed out. Partial results are shown below.")
                     break
+                try:
+                    event = await asyncio.wait_for(astream.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    logger.warning("Session {} timed out during stream wait", session_id)
+                    yield SSEData.error("Session timed out. Partial results are shown below.")
+                    break
+
                 for node_name, node_output in event.items():
-                    accumulated_state.update(node_output)
                     if node_name == "classify":
                         yield SSEData.thinking_status("classifying", "正在分析用户意图...")
                         intent = node_output.get("intent", "unknown")
@@ -158,12 +173,20 @@ async def chat_stream(request: Request):
                             tu.get("prompt", 0), tu.get("completion", 0)
                         )
 
-            # Persist session using accumulated state (has execution_log + final_answer)
-            if accumulated_state:
+            # Get final state from LangGraph native state (checkpointer resumes, no rerun)
+            try:
+                state_snapshot = await graph.aget_state(graph_config)
+                if state_snapshot and state_snapshot.values:
+                    final_state = state_snapshot.values
+            except Exception as e:
+                logger.warning("Failed to get final state from graph: {}", e)
+
+            # Persist session using LangGraph native final state
+            if final_state:
                 session_manager.update(session_id,
-                    execution_log=accumulated_state.get("execution_log", []),
-                    final_answer=accumulated_state.get("final_answer", ""),
-                    token_usage=accumulated_state.get("token_usage", {}),
+                    execution_log=final_state.get("execution_log", []),
+                    final_answer=final_state.get("final_answer", ""),
+                    token_usage=final_state.get("token_usage", {}),
                 )
             session_manager.persist(session_id)
 
@@ -178,14 +201,19 @@ async def chat_stream(request: Request):
         except Exception as e:
             logger.exception("Error in session {}", session_id)
             yield SSEData.error(str(e))
-            # Persist partial state on exception
-            if accumulated_state:
-                session_manager.update(session_id,
-                    execution_log=accumulated_state.get("execution_log", []),
-                    final_answer=accumulated_state.get("final_answer", ""),
-                    token_usage=accumulated_state.get("token_usage", {}),
-                )
-                session_manager.persist(session_id)
+            # Persist partial state on exception (use graph state if available)
+            try:
+                if 'graph' in dir():
+                    state_snapshot = await graph.aget_state(graph_config)
+                    if state_snapshot and state_snapshot.values:
+                        session_manager.update(session_id,
+                            execution_log=state_snapshot.values.get("execution_log", []),
+                            final_answer=state_snapshot.values.get("final_answer", ""),
+                            token_usage=state_snapshot.values.get("token_usage", {}),
+                        )
+                        session_manager.persist(session_id)
+            except Exception:
+                pass
             try:
                 await mcp_client.close()
             except Exception:

@@ -3,6 +3,7 @@
 from loguru import logger
 
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
 
 from backend.app.agent.state import AgentState
 from backend.app.agent.nodes import (
@@ -80,7 +81,7 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
         },
     )
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=MemorySaver())
 
 
 def _route_classify(state: AgentState) -> str:
