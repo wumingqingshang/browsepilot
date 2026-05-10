@@ -934,25 +934,21 @@ def _extract_page_contents(execution_log: list) -> list[str]:
 
 
 async def answer_node(state: AgentState) -> dict:
-    """Generate final answer. Handles both browser_task and chitchat/knowledge_qa paths."""
-    logger.info("[answer_node] Generating final answer...")
-    llm = get_llm()
+    """Prepare answer messages. Actual LLM streaming happens in main.py."""
+    logger.info("[answer_node] Preparing answer context...")
 
     if not state.get("execution_log"):
         # No execution happened: chitchat or knowledge_qa direct path
-        # Answer based on user task + recent messages
         recent_messages = (state.get("messages") or [])[-10:]
-        response = await llm.ainvoke([
+        answer_messages = [
             SystemMessage(content="You are BrowsePilot, a helpful AI assistant skilled in browser automation. Answer the user's question directly and concisely."),
             *recent_messages,
             HumanMessage(content=state["task"]),
-        ])
+        ]
     else:
         # browser_task path: use compressed execution context
-        compressed_log = compress_execution_log(state["execution_log"])
         page_contents = _extract_page_contents(state["execution_log"])
 
-        # Build system prompt — include stop_reason if task was interrupted
         system_prompt = "You are BrowsePilot. Based on the browser execution results below, answer the user's question."
         stop_reason = state.get("stop_reason", "")
         if stop_reason:
@@ -969,10 +965,14 @@ async def answer_node(state: AgentState) -> dict:
             execution_log=state["execution_log"],
             page_contents=page_contents,
         )
-        response = await llm.ainvoke([SystemMessage(content=context)])
+        answer_messages = [SystemMessage(content=context)]
 
-    token_usage = accumulate_tokens(state.get("token_usage", {}), response, "answer")
+    # Store prepared messages — main.py will stream the LLM response
     return {
-        "final_answer": response.content,
-        "token_usage": token_usage,
+        "answer_messages": answer_messages,
     }
+
+
+def get_answer_messages(state: AgentState) -> list:
+    """Get the prepared answer messages from state for streaming in main.py."""
+    return state.get("answer_messages", [])

@@ -180,10 +180,24 @@ async def chat_stream(request: Request):
 
                     elif node_name == "answer":
                         yield SSEData.thinking_status("answering", "正在生成最终回答...")
-                        final = node_output.get("final_answer", "")
-                        tokens = node_output.get("token_usage", {})
-                        total = tokens.get("prompt", 0) + tokens.get("completion", 0)
-                        yield SSEData.final_answer(final, total)
+                        # Stream answer token by token
+                        answer_messages = node_output.get("answer_messages", [])
+                        if answer_messages:
+                            from backend.app.agent.nodes import get_llm
+                            llm = get_llm()
+                            full_text = ""
+                            async for chunk in llm.astream(answer_messages):
+                                if hasattr(chunk, "content") and chunk.content:
+                                    full_text += chunk.content
+                                    yield SSEData.answer_chunk(chunk.content)
+                            # Send final answer with token usage
+                            total = len(full_text)  # rough token estimate
+                            yield SSEData.final_answer(full_text, total)
+                            # Accumulate tokens from the streamed response
+                            if accumulated_state:
+                                accumulated_state["final_answer"] = full_text
+                        else:
+                            yield SSEData.final_answer("", 0)
 
                     # Token updates from any node
                     if node_output.get("token_usage"):

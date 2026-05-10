@@ -3,6 +3,7 @@
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  _streaming?: boolean
 }
 
 export type AgentPhase = 'planning' | 'executing' | 'reflecting' | 'replanning' | 'answering'

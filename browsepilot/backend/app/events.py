@@ -36,6 +36,10 @@ class SSEData:
         return {"event": "token_update", "data": {"prompt": prompt, "completion": completion}}
 
     @staticmethod
+    def answer_chunk(content: str) -> dict:
+        return {"event": "answer_chunk", "data": {"content": content}}
+
+    @staticmethod
     def final_answer(content: str, total_tokens: int) -> dict:
         return {"event": "final_answer", "data": {"content": content, "total_tokens": total_tokens}}
 

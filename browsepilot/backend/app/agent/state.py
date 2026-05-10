@@ -23,3 +23,4 @@ class AgentState(TypedDict):
     replan_count: int  # number of replans in this session
     stagnation_warning: bool  # flag to inject warning into reflect prompt
     stop_reason: str  # reason for forced stop (circuit breaker, step limit, etc.)
+    answer_messages: list  # prepared messages for streaming answer generation

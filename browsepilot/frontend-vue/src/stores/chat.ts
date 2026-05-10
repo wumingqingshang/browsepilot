@@ -89,8 +89,29 @@ export const useChatStore = defineStore('chat', {
           this.completionTokens = d.completion || 0
           break
 
+        case 'answer_chunk':
+          // Streaming answer — append to last assistant message
+          const lastMsg = this.messages[this.messages.length - 1]
+          if (lastMsg && lastMsg.role === 'assistant' && lastMsg._streaming) {
+            lastMsg.content += d.content || ''
+          } else {
+            const msg: ChatMessage = { role: 'assistant', content: d.content || '', _streaming: true }
+            this.messages.push(msg)
+          }
+          break
+
         case 'final_answer':
-          this.messages.push({ role: 'assistant', content: d.content || '' })
+          // Finalize streaming — mark message as complete
+          const last = this.messages[this.messages.length - 1]
+          if (last && last.role === 'assistant' && (last as any)._streaming) {
+            (last as any)._streaming = false
+            // Update content if final_answer provides the full text
+            if (d.content && d.content !== last.content) {
+              last.content = d.content
+            }
+          } else if (d.content) {
+            this.messages.push({ role: 'assistant', content: d.content || '' })
+          }
           this.phase = null
           break
 
