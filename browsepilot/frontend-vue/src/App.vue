@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-screen bg-bg">
     <Sidebar />
-    <div class="flex-1 min-w-0 grid grid-cols-[7fr_3fr] grid-rows-1">
+    <div class="flex-1 min-w-0 min-h-0 grid grid-cols-[7fr_3fr] grid-rows-1">
       <ChatPanel />
       <div class="border-l border-border">
         <MonitorPanel />
