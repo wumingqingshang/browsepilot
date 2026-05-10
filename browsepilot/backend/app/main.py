@@ -69,6 +69,25 @@ async def chat_stream(request: Request):
     mcp_client = MCPClient(get_mcp_server_config("browser-mcp"))
 
     async def event_generator():
+        async def _cleanup_session():
+            """Persist partial state and close MCP on exception."""
+            try:
+                if 'graph' in dir() and 'graph_config' in dir():
+                    state_snapshot = await graph.aget_state(graph_config)
+                    if state_snapshot and state_snapshot.values:
+                        session_manager.update(session_id,
+                            execution_log=state_snapshot.values.get("execution_log", []),
+                            final_answer=state_snapshot.values.get("final_answer", ""),
+                            token_usage=state_snapshot.values.get("token_usage", {}),
+                        )
+                        session_manager.persist(session_id)
+            except Exception:
+                pass
+            try:
+                await mcp_client.close()
+            except Exception:
+                pass
+
         try:
             graph = build_graph(mcp_client, lazy_mcp=True)
             # MCP will be connected lazily when classify routes to browser_task
@@ -198,26 +217,17 @@ async def chat_stream(request: Request):
                 session_manager.schedule_cleanup(session_id)
             )
 
+        except RuntimeError as e:
+            if "cancel scope" in str(e):
+                logger.debug("Session {} anyio cancel scope cleanup: {}", session_id, e)
+            else:
+                logger.exception("Runtime error in session {}", session_id)
+                yield SSEData.error(str(e))
+            await _cleanup_session()
         except Exception as e:
             logger.exception("Error in session {}", session_id)
             yield SSEData.error(str(e))
-            # Persist partial state on exception (use graph state if available)
-            try:
-                if 'graph' in dir():
-                    state_snapshot = await graph.aget_state(graph_config)
-                    if state_snapshot and state_snapshot.values:
-                        session_manager.update(session_id,
-                            execution_log=state_snapshot.values.get("execution_log", []),
-                            final_answer=state_snapshot.values.get("final_answer", ""),
-                            token_usage=state_snapshot.values.get("token_usage", {}),
-                        )
-                        session_manager.persist(session_id)
-            except Exception:
-                pass
-            try:
-                await mcp_client.close()
-            except Exception:
-                pass
+            await _cleanup_session()
 
     async def sse_formatted_generator():
         async for event in event_generator():
