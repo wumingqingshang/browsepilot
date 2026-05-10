@@ -70,14 +70,16 @@ async def chat_stream(request: Request):
     async def event_generator():
         accumulated_state = {}
         try:
-            await mcp_client.connect()
-            graph = build_graph(mcp_client)
+            graph = build_graph(mcp_client, lazy_mcp=True)
+            # MCP will be connected lazily when classify routes to browser_task
 
             initial_state: AgentState = {
                 "messages": [],
                 "task": task,
+                "intent": "",
                 "plan": [],
                 "execution_log": [],
+                "degradation_log": [],
                 "retry_count": 0,
                 "need_replan": False,
                 "final_answer": "",
@@ -91,7 +93,11 @@ async def chat_stream(request: Request):
             async for event in graph.astream(initial_state, {"recursion_limit": 30}):
                 for node_name, node_output in event.items():
                     accumulated_state.update(node_output)
-                    if node_name == "plan":
+                    if node_name == "classify":
+                        yield SSEData.thinking_status("classifying", "正在分析用户意图...")
+                        intent = node_output.get("intent", "unknown")
+
+                    elif node_name == "plan":
                         yield SSEData.thinking_status("planning", "正在分析任务并制定执行计划...")
                         steps = node_output.get("plan", [])
                         tokens = node_output.get("token_usage", {})

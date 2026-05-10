@@ -104,6 +104,59 @@ def get_small_llm():
     )
 
 
+CLASSIFY_PROMPT = """You are an intent classifier. Analyze the user's input and determine which category it belongs to:
+
+1. chitchat — Casual conversation, greetings, small talk unrelated to browser operations
+   Examples:
+   - "Hello" / "Who are you" / "How's the weather"
+   - "Thank you" / "Goodbye"
+
+2. knowledge_qa — Questions that need knowledge/explanation, no browser operations needed
+   Examples:
+   - "Explain machine learning classification methods"
+   - "What is Python's GIL"
+   - "Compare React vs Vue"
+
+3. browser_task — Tasks that need to open a browser and perform specific operations
+   Examples:
+   - "Open Baidu and search for LangChain"
+   - "Find Python web scraping projects on GitHub"
+   - "Show me what's on the Baidu homepage"
+
+Rules:
+- Casual chat, greetings, asking who you are → chitchat
+- Knowledge questions that DON'T need a browser → knowledge_qa
+- Tasks requiring opening web pages, clicking, typing, screenshots → browser_task
+
+Return JSON: {"intent": "chitchat|knowledge_qa|browser_task"}
+Return ONLY JSON, nothing else."""
+
+
+async def classify_node(state: AgentState) -> dict:
+    """Classify user intent using the small model."""
+    logger.info("[classify_node] Classifying: {}", state["task"][:80])
+    llm = get_small_llm()
+
+    result, usage = await parse_llm_json(
+        llm=llm,
+        messages=[
+            SystemMessage(content=CLASSIFY_PROMPT),
+            HumanMessage(content=state["task"]),
+        ],
+        node_name="classify",
+        fallback={"intent": "browser_task"},
+    )
+
+    intent = result.get("intent", "browser_task")
+    if intent not in ("chitchat", "knowledge_qa", "browser_task"):
+        logger.warning("[classify_node] Unknown intent '{}', defaulting to browser_task", intent)
+        intent = "browser_task"
+
+    return {
+        "intent": intent,
+    }
+
+
 async def plan_node(state: AgentState, mcp_client) -> dict:
     """Generate a structured execution plan from the user task."""
     logger.info("[plan_node] Generating plan for task: {}", state["task"][:80])

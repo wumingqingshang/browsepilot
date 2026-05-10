@@ -7,6 +7,7 @@ from langgraph.graph.message import add_messages
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     task: str
+    intent: str
     plan: list[str]
     execution_log: list[dict]
     degradation_log: list[dict]  # [{"node": "plan", "reason": "json_parse_failed", "timestamp": "..."}]
