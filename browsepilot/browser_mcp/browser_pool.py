@@ -47,17 +47,18 @@ class BrowserPool:
         self.browser_timeout = browser_timeout
 
         self._available: asyncio.Queue[PooledBrowser] = asyncio.Queue(max_size)
-        self._semaphore = asyncio.Semaphore(max_size)
         self._all_instances: set[PooledBrowser] = set()
         self._prewarmed = False
+        self._eviction_task: asyncio.Task | None = None
 
     async def start(self):
-        """Pre-warm the pool with initial instances."""
+        """Pre-warm the pool with initial instances and start eviction task."""
         logger.info("Starting BrowserPool: pre-warming {} instances", self.prewarm)
         for _ in range(self.prewarm):
             pooled = await self._create_instance()
-            self._available.put_nowait(pooled)
+            await self._available.put(pooled)
         self._prewarmed = True
+        self._eviction_task = asyncio.create_task(self._evict_expired())
 
     async def _create_instance(self) -> PooledBrowser:
         browser = BrowserManager(
@@ -68,6 +69,7 @@ class BrowserPool:
         await browser.start()
         pooled = PooledBrowser(browser_manager=browser)
         self._all_instances.add(pooled)
+        logger.debug("Browser instance created (total: {})", len(self._all_instances))
         return pooled
 
     async def acquire(self) -> PooledBrowser:
@@ -75,46 +77,60 @@ class BrowserPool:
         if not self._prewarmed:
             await self.start()
 
-        # Try non-blocking get first
-        try:
-            pooled = self._available.get_nowait()
-            if self._is_usable(pooled):
-                pooled.request_count += 1
-                pooled.last_used = time.time()
-                return pooled
-            else:
-                await self._destroy_instance(pooled)
-        except asyncio.QueueEmpty:
-            pass
+        # Loop through queue to find a healthy instance (non-blocking)
+        pooled = await self._try_get_healthy()
+        if pooled is not None:
+            return pooled
 
         # Try to create new instance if under max
-        if not self._semaphore.locked():
-            async with self._semaphore:
-                pooled = await self._create_instance()
-                pooled.request_count = 1
-                pooled.last_used = time.time()
-                return pooled
+        if len(self._all_instances) < self.max_size:
+            pooled = await self._create_instance()
+            pooled.request_count = 1
+            pooled.last_used = time.time()
+            return pooled
 
-        # Pool full: wait in queue
-        try:
-            pooled = await asyncio.wait_for(
-                self._available.get(), timeout=self.acquire_timeout
-            )
+        # Pool full: block on queue with timeout
+        deadline = time.time() + self.acquire_timeout
+        while time.time() < deadline:
+            remaining = deadline - time.time()
+            try:
+                pooled = await asyncio.wait_for(
+                    self._available.get(), timeout=max(remaining, 0.1)
+                )
+            except asyncio.TimeoutError:
+                raise BrowserPoolExhausted(
+                    f"No browser available within {self.acquire_timeout}s"
+                )
             if self._is_usable(pooled):
                 pooled.request_count += 1
                 pooled.last_used = time.time()
                 return pooled
             else:
                 await self._destroy_instance(pooled)
-                raise BrowserPoolExhausted("No healthy instance available")
-        except asyncio.TimeoutError:
-            raise BrowserPoolExhausted(
-                f"No browser available within {self.acquire_timeout}s"
-            )
+
+        raise BrowserPoolExhausted(
+            f"No browser available within {self.acquire_timeout}s"
+        )
+
+    async def _try_get_healthy(self) -> PooledBrowser | None:
+        """Non-blocking attempt to get a healthy instance from queue."""
+        while True:
+            try:
+                pooled = self._available.get_nowait()
+            except asyncio.QueueEmpty:
+                return None
+            if self._is_usable(pooled):
+                pooled.request_count += 1
+                pooled.last_used = time.time()
+                return pooled
+            else:
+                await self._destroy_instance(pooled)
 
     async def release(self, pooled: PooledBrowser):
         if pooled not in self._all_instances:
             return
+
+        # Health check: verify browser is still alive
         try:
             await pooled.browser_manager.get_page()
             pooled.is_healthy = True
@@ -126,17 +142,26 @@ class BrowserPool:
             await self._destroy_instance(pooled)
             if len(self._all_instances) < self.max_size:
                 new_instance = await self._create_instance()
-                self._available.put_nowait(new_instance)
+                await self._available.put(new_instance)
             return
 
+        # Check lifecycle limits
         age = time.time() - pooled.created_at
         if age > self.max_age_seconds or pooled.request_count >= self.max_requests:
             logger.info("Browser instance reached lifecycle limit, destroying")
             await self._destroy_instance(pooled)
             return
 
+        # Check idle timeout
+        idle_time = time.time() - pooled.last_used
+        if idle_time > self.idle_timeout_seconds:
+            logger.info("Browser instance idle for {}s, destroying", int(idle_time))
+            await self._destroy_instance(pooled)
+            return
+
+        # Reset and return to pool
         await pooled.browser_manager.reset()
-        self._available.put_nowait(pooled)
+        await self._available.put(pooled)
 
     def _is_usable(self, pooled: PooledBrowser) -> bool:
         if not pooled.is_healthy:
@@ -144,6 +169,8 @@ class BrowserPool:
         if time.time() - pooled.created_at > self.max_age_seconds:
             return False
         if pooled.request_count >= self.max_requests:
+            return False
+        if time.time() - pooled.last_used > self.idle_timeout_seconds:
             return False
         return True
 
@@ -154,6 +181,24 @@ class BrowserPool:
             await pooled.browser_manager.stop()
         except Exception as e:
             logger.warning("Error stopping browser instance: {}", e)
+
+    async def _evict_expired(self):
+        """Background task: periodically evict idle and expired instances."""
+        while True:
+            await asyncio.sleep(60)
+            now = time.time()
+            to_evict = []
+            for pooled in list(self._all_instances):
+                if now - pooled.last_used > self.idle_timeout_seconds:
+                    to_evict.append(pooled)
+                elif now - pooled.created_at > self.max_age_seconds:
+                    to_evict.append(pooled)
+                elif pooled.request_count >= self.max_requests:
+                    to_evict.append(pooled)
+            for pooled in to_evict:
+                if pooled in self._all_instances:
+                    logger.info("Evicting expired browser instance")
+                    await self._destroy_instance(pooled)
 
 
 # Module-level pool singleton, initialized by main.py

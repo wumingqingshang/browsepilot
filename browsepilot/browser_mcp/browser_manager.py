@@ -62,14 +62,14 @@ class BrowserManager:
             for page in pages[1:]:
                 try:
                     await page.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Error closing extra page during reset: {}", e)
             if pages:
                 self._page = pages[0]
                 try:
                     await self._page.goto("about:blank")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Error navigating to about:blank during reset: {}", e)
 
     async def stop(self) -> None:
         logger.info("Stopping browser instance")
