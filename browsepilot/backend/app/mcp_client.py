@@ -1,5 +1,6 @@
 """MCP client — connects to browser-mcp and discovers tools using transport abstraction."""
 
+import asyncio
 import json
 from typing import Any
 
@@ -24,35 +25,62 @@ class MCPClient:
     def is_connected(self) -> bool:
         return self._session is not None
 
-    async def connect(self) -> list[dict]:
+    async def connect(self, max_retries: int = 3) -> list[dict]:
         """Connect to MCP server via transport abstraction and discover available tools."""
-        logger.info("Connecting to MCP server via {} transport", self.server_config.get("type", "unknown"))
-        read, write = await self._transport.connect()
-        self._streams = (read, write)
-        try:
-            self._session = ClientSession(read, write)
-            await self._session.__aenter__()
-            await self._session.initialize()
-            tools_result = await self._session.list_tools()
-            self._tools = [
-                {
-                    "name": t.name,
-                    "description": t.description or "",
-                    "parameters": t.inputSchema if hasattr(t, "inputSchema") else {},
-                }
-                for t in tools_result.tools
-            ]
-        except Exception:
-            await self._transport.close()
-            raise
-        logger.info("Discovered {} tools: {}", len(self._tools), [t["name"] for t in self._tools])
-        return self._tools
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                logger.info(
+                    "Connecting to MCP server via {} transport (attempt {}/{})",
+                    self.server_config.get("type", "unknown"),
+                    attempt + 1,
+                    max_retries,
+                )
+                read, write = await self._transport.connect()
+                self._streams = (read, write)
+                try:
+                    self._session = ClientSession(read, write)
+                    await self._session.__aenter__()
+                    await self._session.initialize()
+                    tools_result = await self._session.list_tools()
+                    self._tools = [
+                        {
+                            "name": t.name,
+                            "description": t.description or "",
+                            "parameters": t.inputSchema if hasattr(t, "inputSchema") else {},
+                        }
+                        for t in tools_result.tools
+                    ]
+                except Exception:
+                    await self._transport.close()
+                    raise
+                logger.info("Discovered {} tools: {}", len(self._tools), [t["name"] for t in self._tools])
+                return self._tools
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    wait = 2 ** attempt
+                    logger.warning(
+                        "MCP connection attempt {} failed, retrying in {}s: {}",
+                        attempt + 1,
+                        wait,
+                        e,
+                    )
+                    await asyncio.sleep(wait)
+        raise RuntimeError(f"MCP connection failed after {max_retries} attempts: {last_error}")
 
-    async def call_tool(self, tool_name: str, arguments: dict) -> dict:
+    async def call_tool(self, tool_name: str, arguments: dict, timeout: float = 30.0) -> dict:
         """Call a tool on the MCP server and return parsed result."""
         if not self._session:
             raise RuntimeError("MCP client not connected")
-        result = await self._session.call_tool(tool_name, arguments)
+        try:
+            result = await asyncio.wait_for(
+                self._session.call_tool(tool_name, arguments),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Tool call '{}' timed out after {}s", tool_name, timeout)
+            return {"status": "error", "error": "timeout", "message": f"Tool '{tool_name}' timed out"}
         if hasattr(result, "content") and result.content:
             text = result.content[0].text if hasattr(result.content[0], "text") else str(result.content[0])
             try:

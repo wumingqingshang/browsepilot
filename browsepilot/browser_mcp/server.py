@@ -10,21 +10,16 @@ from mcp.server.fastmcp import FastMCP
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_env_path)
 
-from browser_mcp.browser_manager import BrowserManager
-
 
 @asynccontextmanager
 async def browser_lifespan(server):
-    """每个 MCP session 创建一个独立的浏览器实例，session 结束时自动销毁。"""
-    headless = os.getenv("BROWSER_HEADLESS", "true").lower() == "true"
-    timeout = int(os.getenv("BROWSER_TIMEOUT", "15000"))
-    channel = os.getenv("BROWSER_CHANNEL", "") or None
-    browser = BrowserManager(headless=headless, timeout=timeout, channel=channel)
-    await browser.start()
+    """Acquire a browser instance from the shared pool for each MCP session."""
+    import browser_mcp.browser_pool as bp_module
+    pooled = await bp_module.pool.acquire()
     try:
-        yield {"browser": browser}
+        yield {"browser": pooled.browser_manager}
     finally:
-        await browser.stop()
+        await bp_module.pool.release(pooled)
 
 
 mcp = FastMCP(

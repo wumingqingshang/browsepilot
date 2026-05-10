@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     data_dir: str = "data"
     session_ttl_minutes: int = 60
+    browser_pool_size: int = 8
+    browser_pool_prewarm: int = 2
+    browser_max_age_minutes: int = 30
+    browser_max_requests: int = 50
+    browser_idle_timeout: int = 10
+    browser_acquire_timeout: float = 30.0
+    mcp_tool_timeout: int = 30
+    mcp_connect_retries: int = 3
+    max_active_sessions: int = 10
 
     @model_validator(mode="after")
     def check_critical(self):

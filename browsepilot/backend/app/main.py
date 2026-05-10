@@ -21,7 +21,7 @@ from backend.app.agent.state import AgentState
 from backend.app.events import SSEData
 from backend.app.session_manager import SessionManager
 
-session_manager = SessionManager()
+session_manager = SessionManager(max_active_sessions=settings.max_active_sessions)
 
 
 @asynccontextmanager

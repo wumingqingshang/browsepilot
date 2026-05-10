@@ -55,6 +55,22 @@ class BrowserManager:
         data = await page.screenshot(full_page=full_page, type="png")
         return base64.b64encode(data).decode("utf-8")
 
+    async def reset(self) -> None:
+        """Reset page state for instance reuse. Close extra pages, navigate to blank."""
+        if self._context:
+            pages = self._context.pages
+            for page in pages[1:]:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+            if pages:
+                self._page = pages[0]
+                try:
+                    await self._page.goto("about:blank")
+                except Exception:
+                    pass
+
     async def stop(self) -> None:
         logger.info("Stopping browser instance")
         if self._context:

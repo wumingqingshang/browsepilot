@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi import HTTPException
 from loguru import logger
 
 from backend.app.config import settings
@@ -14,12 +15,18 @@ from backend.app.config import settings
 class SessionManager:
     """Manages agent session lifecycle: create, update, persist, replay."""
 
-    def __init__(self):
+    def __init__(self, max_active_sessions: int = 10):
         self._active_sessions: dict[str, dict] = {}
+        self._max_sessions = max_active_sessions
         os.makedirs(f"{settings.data_dir}/sessions", exist_ok=True)
         os.makedirs(f"{settings.data_dir}/screenshots", exist_ok=True)
 
     def create_session(self, session_id: str) -> dict:
+        if len(self._active_sessions) >= self._max_sessions:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many active sessions (max {self._max_sessions})",
+            )
         session = {
             "session_id": session_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
