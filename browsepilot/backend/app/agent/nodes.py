@@ -14,11 +14,20 @@ from backend.app.config import settings
 
 
 def get_llm():
-    """Get configured LLM instance."""
+    """Get the main (big) LLM instance for plan/execute/reflect/replan/answer."""
     return ChatOpenAI(
-        model=settings.llm_model,
-        api_key=settings.openai_api_key,
-        base_url=settings.openai_base_url,
+        model=settings.big_model,
+        api_key=settings.big_model_api_key or settings.openai_api_key,
+        base_url=settings.big_model_base_url or settings.openai_base_url,
+    )
+
+
+def get_small_llm():
+    """Get the small LLM instance for intent classification."""
+    return ChatOpenAI(
+        model=settings.small_model,
+        api_key=settings.small_model_api_key or settings.openai_api_key,
+        base_url=settings.small_model_base_url or settings.openai_base_url,
     )
 
 

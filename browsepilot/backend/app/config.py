@@ -19,7 +19,16 @@ else:
 class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str = "https://api.deepseek.com/v1"
-    llm_model: str = "deepseek-chat"
+    # Big model (main agent: plan/execute/reflect/replan/answer)
+    big_model: str = "deepseek-v4-flash"
+    big_model_api_key: str = ""   # empty = fallback to openai_api_key
+    big_model_base_url: str = ""  # empty = fallback to openai_base_url
+
+    # Small model (classify node)
+    small_model: str = "deepseek-chat"
+    small_model_api_key: str = ""   # empty = fallback to openai_api_key
+    small_model_base_url: str = ""  # empty = fallback to openai_base_url
+
     llm_vision_enabled: bool = False
     browser_headless: bool = True
     browser_channel: str = ""
