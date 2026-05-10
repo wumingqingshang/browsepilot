@@ -9,13 +9,16 @@ from loguru import logger
 from browser_mcp.browser_manager import BrowserManager
 
 
-@dataclass
+@dataclass(eq=False)
 class PooledBrowser:
-    browser_manager: BrowserManager
+    browser_manager: BrowserManager = field(compare=False, hash=False, repr=False)
     created_at: float = field(default_factory=time.time)
     request_count: int = 0
     last_used: float = field(default_factory=time.time)
     is_healthy: bool = True
+
+    def __hash__(self):
+        return id(self.browser_manager)
 
 
 class BrowserPoolExhausted(Exception):
