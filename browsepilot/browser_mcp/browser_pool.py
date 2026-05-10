@@ -130,13 +130,10 @@ class BrowserPool:
         if pooled not in self._all_instances:
             return
 
-        # Health check: verify browser is still alive
-        try:
-            await pooled.browser_manager.get_page()
-            pooled.is_healthy = True
-        except Exception as e:
-            logger.warning("Browser health check failed: {}", e)
-            pooled.is_healthy = False
+        # Lightweight health check: quick page evaluate, no browser restart
+        pooled.is_healthy = await pooled.browser_manager.is_page_alive()
+        if not pooled.is_healthy:
+            logger.warning("Browser health check failed")
 
         if not pooled.is_healthy:
             await self._destroy_instance(pooled)

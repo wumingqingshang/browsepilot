@@ -17,7 +17,7 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
     """Build and compile the BrowsePilot agent StateGraph."""
     workflow = StateGraph(AgentState)
 
-    langchain_tools_holder = {"tools": None}
+    tools_holder = {"tools": None}
 
     async def classify(state: AgentState) -> dict:
         return await classify_node(state)
@@ -29,9 +29,9 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
         return await plan_node(state, mcp_client)
 
     async def execute(state: AgentState) -> dict:
-        if langchain_tools_holder["tools"] is None:
-            langchain_tools_holder["tools"] = await build_tools_from_mcp(mcp_client)
-        return await execute_node(state, mcp_client, langchain_tools_holder["tools"])
+        if tools_holder["tools"] is None:
+            tools_holder["tools"] = await build_tools_from_mcp(mcp_client)
+        return await execute_node(state, mcp_client, tools_holder["tools"])
 
     async def reflect(state: AgentState) -> dict:
         return await reflect_node(state)

@@ -97,10 +97,10 @@ async def chat_stream(request: Request):
 
             yield SSEData.session_created(session_id)
 
-            deadline = time.time() + getattr(settings, 'session_timeout_seconds', 300)
+            deadline = time.monotonic() + getattr(settings, 'session_timeout_seconds', 300)
 
             async for event in graph.astream(initial_state, {"recursion_limit": 30}):
-                if time.time() > deadline:
+                if time.monotonic() > deadline:
                     logger.warning("Session {} timed out after {}s", session_id, settings.session_timeout_seconds)
                     yield SSEData.error("Session timed out. Partial results are shown below.")
                     break

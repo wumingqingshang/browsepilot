@@ -1,5 +1,6 @@
 """Playwright browser instance lifecycle management."""
 
+import asyncio
 import base64
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
@@ -42,6 +43,16 @@ class BrowserManager:
             logger.warning("Page closed or missing, restarting browser")
             await self.start()
         return self._page
+
+    async def is_page_alive(self) -> bool:
+        """Lightweight liveness check without restarting the browser."""
+        if self._page is None or self._page.is_closed():
+            return False
+        try:
+            await asyncio.wait_for(self._page.evaluate("1"), timeout=2.0)
+            return True
+        except Exception:
+            return False
 
     async def dismiss_dialogs(self) -> None:
         page = await self.get_page()

@@ -20,7 +20,12 @@ def extract_json(text: str) -> str | None:
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
         return match.group(1).strip()
-    # 2. Find first { to last }
+    # 2. Find first [ to last ] (JSON array)
+    start = text.find("[")
+    end = text.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+    # 3. Find first { to last } (JSON object)
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -226,23 +231,20 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
 格式示例：["导航到 https://github.com", "获取页面结构，找到搜索框的选择器", "在找到的搜索框中输入关键字", "获取页面结构，找到搜索按钮的选择器", "点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
 只返回JSON数组，不要包含其他内容。步骤要具体、可执行。"""
 
-    response = await llm.ainvoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=state["task"]),
-    ])
-
-    try:
-        plan_text = response.content.strip()
-        if "```" in plan_text:
-            plan_text = plan_text.split("```")[1]
-            if plan_text.startswith("json"):
-                plan_text = plan_text[4:]
-        plan = json.loads(plan_text)
-    except json.JSONDecodeError:
-        logger.warning("[plan_node] Failed to parse plan JSON, using fallback")
+    plan, usage = await parse_llm_json(
+        llm=llm,
+        messages=[
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=state["task"]),
+        ],
+        node_name="plan",
+        fallback=[state["task"], "回答用户"],
+    )
+    if not isinstance(plan, list):
+        logger.warning("[plan_node] Plan is not a list, using fallback")
         plan = [state["task"], "回答用户"]
 
-    token_usage = accumulate_tokens({}, response, "plan")
+    token_usage = accumulate_tokens({}, usage, "plan")
 
     # Self-check: can this plan answer the user's question?
     self_check_prompt = f"""User task: {state["task"]}
@@ -257,7 +259,10 @@ Return ONLY JSON."""
         check_llm = get_llm()
         check_result, check_usage = await parse_llm_json(
             llm=check_llm,
-            messages=[SystemMessage(content=self_check_prompt)],
+            messages=[
+                SystemMessage(content=self_check_prompt),
+                HumanMessage(content="请检查计划是否充分"),
+            ],
             node_name="plan_self_check",
             fallback={"sufficient": True, "extra_steps": []},
         )
@@ -275,7 +280,7 @@ Return ONLY JSON."""
         "plan": plan,
         "retry_count": 0,
         "need_replan": False,
-        "execution_log": [],
+        "execution_log": state.get("execution_log") or [],
         "token_usage": token_usage,
     }
 
@@ -297,7 +302,7 @@ Return JSON: {{"tool": "tool_name", "arguments": {{...}}, "step": "brief step de
 Return ONLY JSON."""
 
 
-async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> dict:
+async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
     """Execute the first step in the plan using the appropriate MCP tool."""
     if not state["plan"]:
         logger.info("[execute_node] No steps remaining in plan")
@@ -311,7 +316,7 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
     # Build tool descriptions for LLM tool selection (tools are raw MCP dicts)
     tools_desc = "\n".join(
         f"- {t['name']}: {t.get('description', '')}"
-        for t in langchain_tools
+        for t in tools
     )
 
     # Build context from recent execution results (especially get_page_structure output)
@@ -336,35 +341,31 @@ async def execute_node(state: AgentState, mcp_client, langchain_tools: list) -> 
         recent_context=recent_context,
     )
 
-    response = await llm.ainvoke([
-        SystemMessage(content=prompt),
-        HumanMessage(content=current_step),
-    ])
+    tool_selection, usage = await parse_llm_json(
+        llm=llm,
+        messages=[
+            SystemMessage(content=prompt),
+            HumanMessage(content=current_step),
+        ],
+        node_name="execute",
+        fallback={"tool": "get_content", "arguments": {}, "step": current_step},
+    )
 
-    # Capture token usage for this execution step
-    token_usage = accumulate_tokens(state.get("token_usage", {}), response, "execute")
+    token_usage = accumulate_tokens(state.get("token_usage", {}), usage, "execute")
 
     result = {}
-    tool_used = "none"
+    tool_used = tool_selection.get("tool", "none") if isinstance(tool_selection, dict) else "none"
 
-    try:
-        content = response.content.strip()
-        if "```" in content:
-            content = content.split("```")[1]
-            if content.startswith("json"):
-                content = content[4:]
-        tool_selection = json.loads(content)
-
-        if tool_selection.get("tool") and tool_selection["tool"] != "none":
-            tool_used = tool_selection["tool"]
-            arguments = tool_selection.get("arguments", {})
-            logger.info("[execute_node] Calling tool {} with args {}", tool_used, arguments)
+    if tool_used and tool_used != "none":
+        arguments = tool_selection.get("arguments", {}) if isinstance(tool_selection, dict) else {}
+        logger.info("[execute_node] Calling tool {} with args {}", tool_used, arguments)
+        try:
             result = await mcp_client.call_tool(tool_used, arguments)
-        else:
-            result = {"status": "skipped", "reason": "no_tool_needed"}
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning("[execute_node] Tool selection failed: {}", e)
-        result = {"status": "error", "error": f"tool_selection_failed: {str(e)}"}
+        except Exception as e:
+            logger.warning("[execute_node] Tool call failed: {}", e)
+            result = {"status": "error", "error": f"tool_call_failed: {str(e)}"}
+    else:
+        result = {"status": "skipped", "reason": "no_tool_needed"}
 
     # Save screenshot if available
     screenshot_path = ""
@@ -499,7 +500,10 @@ async def _completion_check(state: AgentState) -> dict:
     llm = get_llm()
     check_result, usage = await parse_llm_json(
         llm=llm,
-        messages=[SystemMessage(content=context)],
+        messages=[
+            SystemMessage(content=context),
+            HumanMessage(content="请判断信息是否足够回答用户问题"),
+        ],
         node_name="reflect_completion",
         fallback={"action": "answer"},
     )
@@ -611,7 +615,10 @@ async def reflect_node(state: AgentState) -> dict:
             check_llm = get_llm()
             heuristic_result, _ = await parse_llm_json(
                 llm=check_llm,
-                messages=[SystemMessage(content=heuristic_context)],
+                messages=[
+                    SystemMessage(content=heuristic_context),
+                    HumanMessage(content="请检查执行结果是否存在问题"),
+                ],
                 node_name="reflect_heuristic",
                 fallback={"has_issue": False, "issue_type": None, "detail": ""},
             )
@@ -716,19 +723,17 @@ Return ONLY the JSON array, nothing else."""
             HumanMessage(content=context_content),
         ]
 
-    try:
-        response = await llm.ainvoke(messages)
-        plan_text = response.content.strip()
-        if "```" in plan_text:
-            plan_text = plan_text.split("```")[1]
-            if plan_text.startswith("json"):
-                plan_text = plan_text[4:]
-        new_plan = json.loads(plan_text)
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning("[replan_node] Failed to parse replan JSON: {}", e)
+    new_plan, usage = await parse_llm_json(
+        llm=llm,
+        messages=messages,
+        node_name="replan",
+        fallback=["回答用户（基于已完成步骤给出部分结果）"],
+    )
+    if not isinstance(new_plan, list):
+        logger.warning("[replan_node] Replan result is not a list, using fallback")
         new_plan = ["回答用户（基于已完成步骤给出部分结果）"]
 
-    token_usage = accumulate_tokens(state.get("token_usage", {}), response, "replan")
+    token_usage = accumulate_tokens(state.get("token_usage", {}), usage, "replan")
 
     similarity = compute_plan_similarity(state.get("plan", []), new_plan)
 
