@@ -147,9 +147,12 @@ async def chat_stream(request: Request):
                 )
             session_manager.persist(session_id)
 
-            # Schedule cleanup (non-blocking)
+            # Close MCP connection promptly (don't wait for TTL)
+            await mcp_client.close()
+
+            # Schedule session cleanup (disk cleanup only)
             asyncio.create_task(
-                session_manager.schedule_cleanup(session_id, mcp_client)
+                session_manager.schedule_cleanup(session_id)
             )
 
         except Exception as e:

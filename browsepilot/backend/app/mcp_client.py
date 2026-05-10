@@ -29,18 +29,22 @@ class MCPClient:
         logger.info("Connecting to MCP server via {} transport", self.server_config.get("type", "unknown"))
         read, write = await self._transport.connect()
         self._streams = (read, write)
-        self._session = ClientSession(read, write)
-        await self._session.__aenter__()
-        await self._session.initialize()
-        tools_result = await self._session.list_tools()
-        self._tools = [
-            {
-                "name": t.name,
-                "description": t.description or "",
-                "parameters": t.inputSchema if hasattr(t, "inputSchema") else {},
-            }
-            for t in tools_result.tools
-        ]
+        try:
+            self._session = ClientSession(read, write)
+            await self._session.__aenter__()
+            await self._session.initialize()
+            tools_result = await self._session.list_tools()
+            self._tools = [
+                {
+                    "name": t.name,
+                    "description": t.description or "",
+                    "parameters": t.inputSchema if hasattr(t, "inputSchema") else {},
+                }
+                for t in tools_result.tools
+            ]
+        except Exception:
+            await self._transport.close()
+            raise
         logger.info("Discovered {} tools: {}", len(self._tools), [t["name"] for t in self._tools])
         return self._tools
 
