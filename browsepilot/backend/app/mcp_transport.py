@@ -29,7 +29,7 @@ class StreamableHTTPTransport(MCPTransport):
     async def connect(self):
         logger.info("Connecting via streamable-http to {}", self.url)
         self._client = streamable_http_client(self.url)
-        read, write = await self._client.__aenter__()
+        read, write, _ = await self._client.__aenter__()
         return read, write
 
     async def close(self) -> None:
