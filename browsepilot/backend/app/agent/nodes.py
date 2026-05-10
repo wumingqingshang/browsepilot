@@ -20,12 +20,17 @@ def extract_json(text: str) -> str | None:
     match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if match:
         return match.group(1).strip()
-    # 2. Find first [ to last ] (JSON array)
+    # 2. Find first { to last } (JSON object — try before array since objects often contain arrays)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start and start < text.find("["):
+        return text[start:end + 1]
+    # 3. Find first [ to last ] (JSON array)
     start = text.find("[")
     end = text.rfind("]")
     if start != -1 and end != -1 and end > start:
         return text[start:end + 1]
-    # 3. Find first { to last } (JSON object)
+    # 4. Fallback: { to } even if [ appears first
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
