@@ -89,8 +89,11 @@ class SessionManager:
         for f in sorted(sessions_dir.glob("*.json"), reverse=True):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
+                session_id = data.get("session_id") or f.stem
+                if not session_id or session_id == "None":
+                    continue
                 results.append({
-                    "id": data.get("session_id", f.stem),
+                    "id": session_id,
                     "task_summary": (data.get("task", "") or "")[:30],
                     "created_at": data.get("created_at", ""),
                     "status": data.get("status", "unknown"),
