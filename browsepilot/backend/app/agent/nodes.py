@@ -387,8 +387,10 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
 
         if not skip_screenshot:
             step_index = state.get("total_steps", 0)
-            os.makedirs(f"{settings.data_dir}/screenshots", exist_ok=True)
-            screenshot_path = f"{settings.data_dir}/screenshots/step_{step_index}.png"
+            session_id = state.get("session_id", "unknown")
+            screenshots_dir = f"{settings.data_dir}/screenshots/{session_id}"
+            os.makedirs(screenshots_dir, exist_ok=True)
+            screenshot_path = f"{screenshots_dir}/step_{step_index}.png"
             try:
                 with open(screenshot_path, "wb") as f:
                     f.write(base64.b64decode(result["screenshot_base64"]))

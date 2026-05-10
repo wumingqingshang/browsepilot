@@ -93,6 +93,7 @@ async def chat_stream(request: Request):
             initial_state: AgentState = {
                 "messages": [],
                 "task": task,
+                "session_id": session_id,
                 "intent": "",
                 "plan": [],
                 "execution_log": [],

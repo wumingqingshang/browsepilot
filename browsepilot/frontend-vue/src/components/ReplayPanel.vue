@@ -103,7 +103,15 @@ watch(currentSessionId, async (id) => {
 
 function getScreenshotUrl(path: string): string {
   if (!path) return ''
-  const filename = path.replace(/\\/g, '/').split('/').pop() || ''
+  // Path is like "data/screenshots/{session_id}/step_X.png"
+  // Extract everything after "screenshots/" to preserve session subdirectory
+  const normalized = path.replace(/\\/g, '/')
+  const idx = normalized.indexOf('screenshots/')
+  if (idx !== -1) {
+    return '/api/' + normalized.substring(idx)
+  }
+  // Fallback: old flat format
+  const filename = normalized.split('/').pop() || ''
   return `/api/screenshots/${filename}`
 }
 

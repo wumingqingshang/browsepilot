@@ -7,6 +7,7 @@ from langgraph.graph.message import add_messages
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     task: str
+    session_id: str  # for per-session screenshot directories
     intent: str
     plan: list[str]
     execution_log: list[dict]
