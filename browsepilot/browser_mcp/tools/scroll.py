@@ -1,5 +1,7 @@
 """Scroll tool — scroll the page up or down."""
 
+import asyncio
+
 from mcp.server.fastmcp import Context
 from browser_mcp.server import mcp
 
@@ -11,8 +13,10 @@ async def scroll(ctx: Context, direction: str = "down", amount: int = 500) -> di
     page = await browser.get_page()
     try:
         pixels = amount if direction == "down" else -amount
-        await page.evaluate(f"window.scrollBy(0, {pixels})")
-        screenshot_data = await browser.screenshot()
+        await asyncio.wait_for(page.evaluate(f"window.scrollBy(0, {pixels})"), timeout=15.0)
+        screenshot_data = await asyncio.wait_for(browser.screenshot(), timeout=15.0)
         return {"status": "success", "screenshot_base64": screenshot_data}
+    except asyncio.TimeoutError:
+        return {"status": "error", "error": "timeout", "message": "scroll timed out"}
     except Exception as e:
         return {"status": "error", "error": str(e)}

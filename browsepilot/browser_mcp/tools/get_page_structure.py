@@ -1,5 +1,7 @@
 """Get page structure tool — extract interactive elements with selectors."""
 
+import asyncio
+
 from mcp.server.fastmcp import Context
 from browser_mcp.server import mcp
 
@@ -10,7 +12,7 @@ async def get_page_structure(ctx: Context) -> dict:
     browser = ctx.request_context.lifespan_context["browser"]
     page = await browser.get_page()
     try:
-        structure = await page.evaluate("""
+        structure = await asyncio.wait_for(page.evaluate("""
             () => {
                 const getBestSelector = (el) => {
                     if (el.id) return '#' + CSS.escape(el.id);
@@ -70,8 +72,10 @@ async def get_page_structure(ctx: Context) -> dict:
 
                 return { inputs: inputs.slice(0, 20), buttons: buttons.slice(0, 20), links: links.slice(0, 30) };
             }
-        """)
-        screenshot = await browser.screenshot()
+        """), timeout=15.0)
+        screenshot = await asyncio.wait_for(browser.screenshot(), timeout=15.0)
         return {"status": "success", "structure": structure, "screenshot_base64": screenshot}
+    except asyncio.TimeoutError:
+        return {"status": "error", "error": "timeout", "message": "get_page_structure timed out"}
     except Exception as e:
         return {"status": "error", "error": str(e)}

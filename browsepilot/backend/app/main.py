@@ -4,6 +4,7 @@ import uuid
 import json
 import asyncio
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -90,7 +91,13 @@ async def chat_stream(request: Request):
 
             yield SSEData.session_created(session_id)
 
+            deadline = time.time() + getattr(settings, 'session_timeout_seconds', 300)
+
             async for event in graph.astream(initial_state, {"recursion_limit": 30}):
+                if time.time() > deadline:
+                    logger.warning("Session {} timed out after {}s", session_id, settings.session_timeout_seconds)
+                    yield SSEData.error("Session timed out. Partial results are shown below.")
+                    break
                 for node_name, node_output in event.items():
                     accumulated_state.update(node_output)
                     if node_name == "classify":
@@ -165,6 +172,14 @@ async def chat_stream(request: Request):
         except Exception as e:
             logger.exception("Error in session {}", session_id)
             yield SSEData.error(str(e))
+            # Persist partial state on exception
+            if accumulated_state:
+                session_manager.update(session_id,
+                    execution_log=accumulated_state.get("execution_log", []),
+                    final_answer=accumulated_state.get("final_answer", ""),
+                    token_usage=accumulated_state.get("token_usage", {}),
+                )
+                session_manager.persist(session_id)
             try:
                 await mcp_client.close()
             except Exception:

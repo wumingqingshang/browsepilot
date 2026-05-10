@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     max_sessions_count: int = 100
     max_storage_mb: int = 500
     cleanup_interval_hours: int = 6
+    llm_timeout_seconds: int = 60
+    session_timeout_seconds: int = 300
+    consecutive_failures_threshold: int = 3
+    stagnation_threshold: int = 3
+    replan_max_count: int = 2
+    recursion_warning_threshold: int = 25
 
     @model_validator(mode="after")
     def check_critical(self):

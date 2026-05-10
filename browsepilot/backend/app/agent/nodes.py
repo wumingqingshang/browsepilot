@@ -39,6 +39,21 @@ def repair_json(candidate: str) -> str:
     return candidate
 
 
+def compute_plan_similarity(old_plan: list[str], new_plan: list[str]) -> float:
+    """Jaccard similarity on character-level tokens. No LLM."""
+    def tokenize(steps):
+        tokens = set()
+        for s in steps:
+            for ch in s.replace(" ", ""):
+                tokens.add(ch)
+        return tokens
+    old_tokens = tokenize(old_plan)
+    new_tokens = tokenize(new_plan)
+    if not old_tokens or not new_tokens:
+        return 0.0
+    return len(old_tokens & new_tokens) / len(old_tokens | new_tokens)
+
+
 async def parse_llm_json(
     llm,
     messages: list,
@@ -707,7 +722,34 @@ Return ONLY the JSON array, nothing else."""
         logger.warning("[replan_node] Failed to parse replan JSON: {}", e)
         new_plan = ["回答用户（基于已完成步骤给出部分结果）"]
 
-    return {"plan": new_plan, "need_replan": False, "retry_count": 0}
+    similarity = compute_plan_similarity(state.get("plan", []), new_plan)
+
+    if similarity == 1.0:
+        logger.warning("[replan_node] Identical plan generated, giving up")
+        return {
+            "plan": state.get("plan", []),
+            "need_replan": False,
+            "stagnation_count": state.get("stagnation_count", 0) + 1,
+            "replan_count": state.get("replan_count", 0) + 1,
+        }
+
+    if similarity > 0.8:
+        logger.warning("[replan_node] Highly similar plan (sim={:.2f})", similarity)
+        return {
+            "plan": new_plan,
+            "stagnation_count": state.get("stagnation_count", 0) + 1,
+            "stagnation_warning": True,
+            "replan_count": state.get("replan_count", 0) + 1,
+            "need_replan": False,
+        }
+
+    return {
+        "plan": new_plan,
+        "stagnation_count": 0,
+        "stagnation_warning": False,
+        "replan_count": state.get("replan_count", 0) + 1,
+        "need_replan": False,
+    }
 
 
 # --- Answer node with dual-path fallback ---

@@ -1,5 +1,7 @@
 """LangGraph StateGraph construction for BrowsePilot agent."""
 
+from loguru import logger
+
 from langgraph.graph import StateGraph, END
 
 from backend.app.agent.state import AgentState
@@ -90,7 +92,24 @@ def _route_classify(state: AgentState) -> str:
 
 
 def _route_reflect(state: AgentState) -> str:
-    """Route after reflection: retry/continue → execute, replan → replan, done → answer."""
+    """Route after reflection: circuit breaker checks, then retry/continue/replan/done."""
+    # Circuit breaker checks
+    if state.get("consecutive_failures", 0) >= 3:
+        logger.warning("Circuit breaker: {} consecutive failures, forcing answer", state["consecutive_failures"])
+        return "answer"
+    if state.get("replan_count", 0) >= 2:
+        logger.warning("Too many replans ({}), forcing answer", state["replan_count"])
+        return "answer"
+    if state.get("stagnation_count", 0) >= 3:
+        logger.warning("Stagnation detected (count={}), forcing answer", state["stagnation_count"])
+        return "answer"
+
+    # Recursion limit warning
+    if len(state.get("execution_log", [])) >= 25:
+        logger.warning("Approaching recursion limit ({} steps), forcing answer", len(state["execution_log"]))
+        return "answer"
+
+    # Original routing logic
     if state.get("need_replan"):
         return "replan"
     if state.get("plan") and len(state["plan"]) > 0:

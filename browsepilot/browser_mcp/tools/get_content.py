@@ -1,5 +1,7 @@
 """Get content tool — extract page text or HTML."""
 
+import asyncio
+
 from mcp.server.fastmcp import Context
 from browser_mcp.server import mcp
 
@@ -11,10 +13,12 @@ async def get_content(ctx: Context, format: str = "text") -> dict:
     page = await browser.get_page()
     try:
         if format == "html":
-            content = await page.content()
+            content = await asyncio.wait_for(page.content(), timeout=15.0)
         else:
-            content = await page.inner_text("body")
-        screenshot = await browser.screenshot()
+            content = await asyncio.wait_for(page.inner_text("body"), timeout=15.0)
+        screenshot = await asyncio.wait_for(browser.screenshot(), timeout=15.0)
         return {"status": "success", "content": content[:10000], "screenshot_base64": screenshot}
+    except asyncio.TimeoutError:
+        return {"status": "error", "error": "timeout", "message": "get_content timed out"}
     except Exception as e:
         return {"status": "error", "error": str(e), "content": ""}

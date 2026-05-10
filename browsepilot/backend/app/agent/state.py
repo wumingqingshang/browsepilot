@@ -16,3 +16,7 @@ class AgentState(TypedDict):
     final_answer: str
     token_usage: dict  # {"prompt": int, "completion": int}
     completion_check_count: int  # max 1 completion check per session
+    consecutive_failures: int  # consecutive step failures
+    stagnation_count: int  # stagnation detection counter
+    replan_count: int  # number of replans in this session
+    stagnation_warning: bool  # flag to inject warning into reflect prompt
