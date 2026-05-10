@@ -68,9 +68,165 @@ def get_small_llm():
 
 ---
 
-## 二、意图分类路由（#3）
+## 二、LLM JSON 解析健壮性
 
-### 2.1 图结构变更
+6 个调用 LLM 的节点（classify, plan, execute, reflect, replan, answer）均依赖 LLM 返回结构化 JSON。任一解析失败都可能导致节点行为异常或流程中断。本节定义统一的 JSON 提取与容错机制，所有节点共用。
+
+### 2.1 三层容错策略
+
+```
+llm_response.content
+  │
+  ▼
+第 1 层：extract_json(text)
+  正则匹配 JSON 块（处理 markdown 包裹、多余文本）
+  ├─ 找到候选 → 进入第 2 层
+  └─ 未找到 → 进入第 3 层
+  │
+  ▼
+第 2 层：json.loads(candidate)
+  ├─ 成功 → 返回解析结果
+  └─ 失败 → 尝试修复常见错误（尾逗号、单引号）→ 再次 loads
+      ├─ 修复成功 → 返回解析结果
+      └─ 修复失败 → 进入第 3 层
+  │
+  ▼
+第 3 层：重试 LLM 调用（1 次）
+  向 LLM 发送修正指令，明确指出上次返回的格式问题
+  ├─ 成功 → 返回解析结果
+  └─ 仍失败 → 返回 None，调用方使用 per-node 降级默认值
+```
+
+### 2.2 extract_json() 实现
+
+```python
+import re
+import json
+
+def extract_json(text: str) -> str | None:
+    """从 LLM 返回文本中提取 JSON 字符串。"""
+    # 1. 尝试匹配 ```json ... ``` 或 ``` ... ```
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if match:
+        return match.group(1).strip()
+
+    # 2. 尝试匹配第一个 { 到最后一个 } 之间的内容
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start:end + 1]
+
+    return None
+
+
+def repair_json(candidate: str) -> str:
+    """修复常见的 JSON 格式错误。"""
+    # 移除尾随逗号（在 ] 或 } 之前）
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+    # 单引号替换为双引号（仅在 key/value 外层）
+    # 注意：不处理字符串内容中的单引号，仅处理结构引号
+    candidate = re.sub(r"'([^']*)'\s*:", r'"\1":', candidate)
+    candidate = re.sub(r":\s*'([^']*)'", r': "\1"', candidate)
+    return candidate
+```
+
+### 2.3 parse_llm_json() — 统一入口
+
+```python
+async def parse_llm_json(
+    llm,
+    messages: list,
+    node_name: str,
+    fallback: dict,
+    max_retries: int = 1,
+) -> dict:
+    """统一的 LLM JSON 调用 + 解析 + 容错 + 降级。
+
+    Args:
+        llm: ChatOpenAI 实例
+        messages: 发送给 LLM 的消息列表
+        node_name: 节点名称（用于日志和降级记录）
+        fallback: 解析彻底失败时返回的默认值
+        max_retries: LLM 重试次数
+
+    Returns:
+        解析成功的 dict，或 fallback
+    """
+    for attempt in range(max_retries + 1):
+        try:
+            response = await llm.ainvoke(messages)
+            text = response.content if hasattr(response, "content") else str(response)
+
+            candidate = extract_json(text)
+            if candidate is None:
+                if attempt < max_retries:
+                    messages.append({"role": "assistant", "content": text})
+                    messages.append({
+                        "role": "user",
+                        "content": "你的回复格式不正确。请只返回一个 JSON 对象，不要包含其他内容。"
+                    })
+                    continue
+                logger.warning("[{}] No JSON found in LLM response after {} retries", node_name, max_retries)
+                return fallback
+
+            # 尝试解析
+            try:
+                result = json.loads(candidate)
+                return result
+            except json.JSONDecodeError:
+                repaired = repair_json(candidate)
+                try:
+                    result = json.loads(repaired)
+                    logger.info("[{}] JSON repaired successfully", node_name)
+                    return result
+                except json.JSONDecodeError:
+                    if attempt < max_retries:
+                        messages.append({"role": "assistant", "content": text})
+                        messages.append({
+                            "role": "user",
+                            "content": f"你的JSON格式有误：{str(e)[:200]}。请修正后重新返回。"
+                        })
+                        continue
+                    logger.warning("[{}] JSON parse failed after {} retries: {}", node_name, max_retries, str(e)[:200])
+                    return fallback
+
+        except Exception as e:
+            # LLM 调用本身的异常（超时、网络等），由上层超时机制处理
+            logger.error("[{}] LLM call failed: {}", node_name, str(e)[:200])
+            raise  # 向上抛出，由节点级别的超时包裹处理
+```
+
+### 2.4 各节点降级默认值
+
+| 节点 | fallback 值 | 降级后果 |
+|------|------------|---------|
+| classify | `{"intent": "browser_task"}` | 保守：未知意图走完整浏览器流程 |
+| plan | `["导航到目标网站", "获取页面内容", "回答用户"]` | 通用三步骤兜底 |
+| execute | `{"tool": "get_content", "arguments": {}}` | 尝试获取当前页面内容 |
+| reflect | `{"action": "answer"}` | 保守：不再继续，直接回答 |
+| replan | `{"new_plan": [], "action": "answer"}` | 放弃重规划，直接回答 |
+| answer | — (answer 不要求 JSON 格式) | answer 返回自然语言，无需 JSON 解析 |
+
+### 2.5 检修记录
+
+降级发生时，`parse_llm_json` 记录 warning 日志并返回 fallback。此外，AgentState 中新增字段记录降级事件，便于排查：
+
+```python
+# AgentState 新增
+degradation_log: list[dict]  # [{"node": "plan", "reason": "json_parse_failed", "fallback": True}]
+```
+
+### 2.6 改动位置
+
+全部在 `backend/app/agent/nodes.py` 中：新增 `extract_json()`, `repair_json()`, `parse_llm_json()` 三个工具函数。各节点将原来的 `llm.ainvoke()` + 手动 `json.loads()` 改为调用 `parse_llm_json()`。
+
+同样更新 `AgentState` 新增 `degradation_log` 字段。
+
+---
+
+## 三、意图分类路由（#3）
+
+### 3.1 图结构变更
 
 ```
 START → classify
@@ -81,7 +237,7 @@ START → classify
 
 入口从 `plan` 改为 `classify`，条件路由 `_route_classify` 根据 `state["intent"]` 分流。
 
-### 2.2 classify_node
+### 3.2 classify_node
 
 使用 `get_small_llm()`，以完整分类 prompt 识别意图：
 
@@ -114,14 +270,14 @@ START → classify
 只返回 JSON，不要包含任何其他内容。
 ```
 
-### 2.3 MCP 延迟连接
+### 3.3 MCP 延迟连接
 
 - `main.py` 中移除 graph 构建前的 `mcp_client.connect()` 调用
 - MCPClient 对象创建后不立即连接
 - graph 的 plan wrapper 中检查 `mcp_client.is_connected`，未连接则调用 `connect()`
 - chitchat / knowledge_qa 路径全程不连接 MCP
 
-### 2.4 改动文件
+### 3.4 改动文件
 
 | 文件 | 改动 |
 |------|------|
@@ -134,9 +290,9 @@ START → classify
 
 ---
 
-## 三、execute 重试修复（#2）
+## 四、execute 重试修复（#2）
 
-### 3.1 步骤弹出逻辑
+### 4.1 步骤弹出逻辑
 
 ```python
 # execute_node 中
@@ -151,7 +307,7 @@ else:
     return {"plan": state["plan"], "retry_count": state["retry_count"] + 1, ...}
 ```
 
-### 3.2 行为表
+### 4.2 行为表
 
 | 场景 | 行为 |
 |------|------|
@@ -159,15 +315,15 @@ else:
 | 步骤失败，retry_count < 2 | 保留在 plan 中，reflect 判重试 |
 | 步骤失败，retry_count >= 2 | reflect 判 replan |
 
-### 3.3 改动文件
+### 4.3 改动文件
 
 仅 `backend/app/agent/nodes.py` — `execute_node` 函数。
 
 ---
 
-## 四、Agent 五节点优化（#4）
+## 五、Agent 五节点优化（#4）
 
-### 4.1 reflect_node：两级反思
+### 5.1 reflect_node：两级反思
 
 **级别一（启发式检查，代码级，零成本）**：
 
@@ -197,7 +353,7 @@ else:
   最多 3 个补充步骤。
 ```
 
-### 4.2 plan_node：自检
+### 5.2 plan_node：自检
 
 生成计划后，追加一次简短 LLM 调用：
 ```
@@ -211,7 +367,7 @@ else:
 
 若 insufficient，将 extra_steps 追加到 plan 末尾。
 
-### 4.3 replan_node：视觉接入
+### 5.3 replan_node：视觉接入
 
 严格受 `llm_vision_enabled` 控制：
 
@@ -227,7 +383,7 @@ else:
 - 必须从 `settings.llm_vision_enabled` 读取
 - 即使 screenshot_path 存在，`False` 时也不编码不传入，防止向不支持视觉的模型发送无意义数据
 
-### 4.4 execute_node：精简 prompt
+### 5.4 execute_node：精简 prompt
 
 从 ~30 行压缩到 ~15 行，去掉重复规则：
 ```
@@ -245,7 +401,7 @@ else:
 
 保留 `recent_context` 提取逻辑（已验证有效）。
 
-### 4.5 answer_node：边界兜底
+### 5.5 answer_node：边界兜底
 
 ```python
 if not state.get("execution_log"):
@@ -263,9 +419,9 @@ else:
 
 ---
 
-## 五、健壮性加固（#7）
+## 六、健壮性加固（#7）
 
-### 5.1 熔断器
+### 6.1 熔断器
 
 AgentState 新增 3 个计数器：
 
@@ -275,7 +431,7 @@ AgentState 新增 3 个计数器：
 | `stagnation_count` | 末尾 3 条结果相似度 > 80% | >= 3 | 标记停滞，reflect 提示换策略 |
 | `replan_count` | 每次进入 replan_node | >= 2 | 放弃 → answer（部分结果） |
 
-### 5.2 重复 plan 检测
+### 6.2 重复 plan 检测
 
 ```python
 def compute_plan_similarity(old_plan: list[str], new_plan: list[str]) -> float:
@@ -308,7 +464,7 @@ reflect 注入警告文本：
 如果确实没有可行的替代方案，请直接判定 answer。
 ```
 
-### 5.3 超时保护
+### 6.3 超时保护
 
 | 位置 | 措施 | 超时 | 超时行为 |
 |------|------|------|---------|
@@ -327,13 +483,13 @@ LLM 超时降级策略：
 | replan | 直接 answer |
 | answer | 返回原始收集信息摘要 |
 
-### 5.4 recursion_limit 降级
+### 6.4 recursion_limit 降级
 
 `_route_reflect` 中增加预警：step_count >= 25 时强制路由到 answer，避免触发 GraphRecursionError。answer 内容包含"部分结果"提示。
 
 step_count 通过 `len(state["execution_log"])` 获取。
 
-### 5.5 资源清理加固
+### 6.5 资源清理加固
 
 | 场景 | 改为 |
 |------|------|
@@ -342,7 +498,7 @@ step_count 通过 `len(state["execution_log"])` 获取。
 | 截图清理 | 纳入 SessionManager TTL 清理（联动 #6） |
 | LLM JSON 解析失败 | 重试 1 次 → 仍失败记录原因走降级 |
 
-### 5.6 改动文件
+### 6.6 改动文件
 
 | 文件 | 改动 |
 |------|------|
@@ -356,9 +512,9 @@ step_count 通过 `len(state["execution_log"])` 获取。
 
 ---
 
-## 六、Token 统计与上下文管理（#8）
+## 七、Token 统计与上下文管理（#8）
 
-### 6.1 Token 覆盖修复
+### 7.1 Token 覆盖修复
 
 6 个调用 LLM 的节点（classify, plan, execute, reflect, replan, answer）全部通过 `accumulate_tokens()` 提取 `usage_metadata` 并累加。
 
@@ -392,7 +548,7 @@ token_usage: {
 }
 ```
 
-### 6.2 双层上下文截断
+### 7.2 双层上下文截断
 
 **内层** — `compress_execution_log(execution_log, max_tokens=4000)`：
 最近 3 步完整保留，更早步骤只保留步骤名 + 成功/失败。
@@ -410,11 +566,11 @@ token_usage: {
 
 Token 估算使用保守的 `len(text) // 2`。
 
-### 6.3 messages 字段苏醒
+### 7.3 messages 字段苏醒
 
 answer_node 中 messages 作为对话上下文传入（chitchat/knowledge_qa 路径最近 10 条，browser_task 路径通过 `build_context_with_budget` 控制）。
 
-### 6.4 三个缺陷修复
+### 7.4 三个缺陷修复
 
 | 缺陷 | 修复 |
 |------|------|
@@ -422,7 +578,7 @@ answer_node 中 messages 作为对话上下文传入（chitchat/knowledge_qa 路
 | 截图序号冲突 | AgentState 新增 `total_steps: int` 单调递增计数器，截图文件以此命名 |
 | accumulated_state 脆弱 | 改为使用 graph.astream 每次 emit 的完整 state，或最后 graph.ainvoke 获取最终状态 |
 
-### 6.5 改动文件
+### 7.5 改动文件
 
 | 文件 | 改动 |
 |------|------|
@@ -435,7 +591,7 @@ answer_node 中 messages 作为对话上下文传入（chitchat/knowledge_qa 路
 
 ---
 
-## 七、AgentState 最终字段
+## 八、AgentState 最终字段
 
 ```python
 class AgentState(TypedDict):
@@ -454,19 +610,20 @@ class AgentState(TypedDict):
     replan_count: int                    # 新增：重规划计数器
     stagnation_warning: bool             # 新增：reflect 提示注入开关
     completion_check_count: int          # 新增：完工检查次数限制（最多1次）
+    degradation_log: list[dict]          # 新增：降级事件记录
 ```
 
 ---
 
-## 八、A 层文件总览
+## 九、A 层文件总览
 
 ```
 backend/app/
 ├── config.py                  ← 模型配置重构 + 超时/熔断/上下文配置
 ├── agent/
-│   ├── state.py               ← +7 个字段（含 token_usage 改造）
+│   ├── state.py               ← +10 个字段（含 token_usage 改造）
 │   ├── graph.py               ← classify 节点 + 条件路由 + lazy MCP + recursion_limit 预警
-│   ├── nodes.py               ← 6 节点全部改动（核心）
+│   ├── nodes.py               ← 6 节点全部改动 + JSON 解析健壮性工具函数（核心）
 │   └── tools.py               ← 移除 langchain_tools 转换层
 ├── main.py                    ← 移除 eager MCP + session 超时 + 异常持久化 + state 修复
 ├── mcp_client.py              ← call_tool 超时（联动 #5）
@@ -475,7 +632,7 @@ browser_mcp/tools/             ← 4 个工具 +wait_for
 .env / .env.example            ← 模型配置重构
 ```
 
-## 九、与 B+C 层的联动点
+## 十、与 B+C 层的联动点
 
 1. **config.py**：B+C 的显式加载 + 校验 与 A 层的模型配置重构合并到同一个 config.py
 2. **mcp_client.py**：B+C 的 transport 改造 + 加固 与 A 层的 call_tool 超时合并
@@ -483,7 +640,7 @@ browser_mcp/tools/             ← 4 个工具 +wait_for
 4. **session_manager.py**：B+C 的数据清理 + 并发限制已定稿，A 层不追加变更
 5. **main.py**：B+C 层无改动，A 层改动（lazy MCP + session 超时 + 异常持久化 + state 修复）
 
-## 十、风险与注意事项
+## 十一、风险与注意事项
 
 1. **classify 误分类**：小模型可能将 browser_task 误判为 knowledge_qa，导致用户任务丢失。需记录 classify 结果到 execution_log，便于排查。可考虑在 answer_node 加一道检查——如果 messages 中用户明确要求浏览器操作但 intent 非 browser_task，追加一次确认
 2. **MCP lazy connect 失败**：classify 判为 browser_task 后，MCP 连接可能失败（browser-mcp 未启动）。应返回友好提示而非 500
