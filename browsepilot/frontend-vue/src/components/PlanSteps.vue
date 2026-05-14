@@ -9,7 +9,7 @@
         v-if="totalSteps > 0"
         class="float-right font-serif text-[18px] font-bold text-accent leading-none"
       >
-        {{ currentStepIndex
+        {{ Math.min(currentStepIndex, totalSteps)
         }}<span class="text-[10px] text-text-muted">/{{ totalSteps }}</span>
       </span>
     </div>

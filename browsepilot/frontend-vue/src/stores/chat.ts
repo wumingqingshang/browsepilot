@@ -52,6 +52,7 @@ export const useChatStore = defineStore('chat', {
         case 'plan_generated':
           this.planSteps = d.steps || []
           this.totalSteps = this.planSteps.length
+          this.currentStepIndex = 0
           this.phase = 'executing'
           if (d.token_usage) {
             this.promptTokens = d.token_usage.prompt || 0

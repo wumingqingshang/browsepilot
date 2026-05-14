@@ -5,7 +5,7 @@
       {{ label }}<span class="thinking-dot"></span>
     </div>
     <div class="font-serif text-[14px] text-text-body">{{ message }}</div>
-    <div v-if="totalSteps > 0" class="progress-bar">
+    <div v-if="totalSteps > 0 && phase !== 'answering'" class="progress-bar">
       <div
         v-for="i in totalSteps"
         :key="i"
