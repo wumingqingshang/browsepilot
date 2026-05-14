@@ -56,6 +56,26 @@ def test_threshold_value():
     assert THRESHOLD == 2
 
 
+def test_classifier_navigate_needs_url():
+    """Regression test: classifier picks navigate but args MUST come from LLM.
+
+    navigate tool requires a 'url' parameter. The classifier only selects the
+    tool name — it does NOT extract arguments. The execute_node must still call
+    the LLM to fill in arguments when the classifier hits.
+    """
+    result = classify_tool("导航到 https://www.bing.com")
+    assert result == "navigate"
+    # classifier itself should NOT return arguments — just the tool name (or None)
+
+
+def test_classifier_returns_none_for_ambiguous():
+    """Ambiguous steps go to LLM for full tool+args selection."""
+    # 空步骤
+    assert classify_tool("") is None
+    # 纯聊天
+    assert classify_tool("你好，今天天气怎么样") is None
+
+
 # ── R2 & R3: Session Manager ───────────────────────────────────────────
 
 @pytest.fixture

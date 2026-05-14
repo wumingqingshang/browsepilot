@@ -423,12 +423,29 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         recent_context=recent_context,
     )
 
-    # Try scoring classifier first — if confident, skip LLM tool selection
+    # Try scoring classifier first — if confident, let LLM only fill arguments
     classified_tool = classify_tool(current_step)
     if classified_tool:
         logger.info("[execute_node] Classifier selected tool: {} (score >= {})", classified_tool, THRESHOLD)
-        tool_selection = {"tool": classified_tool, "arguments": {}, "step": current_step}
-        usage = None
+        # LLM only needs to extract arguments; tool is already chosen
+        arg_prompt = EXECUTE_SYSTEM_PROMPT.format(
+            tools_desc=tools_desc,
+            recent_context=recent_context,
+        )
+        # Add a clear instruction that the tool is fixed
+        arg_prompt += f"\n\nIMPORTANT: The tool has already been chosen as '{classified_tool}'. "
+        arg_prompt += "You only need to provide the correct arguments for this tool based on the step description. "
+        arg_prompt += "Return JSON: {{\"arguments\": {{...}}, \"step\": \"brief step description\"}}"
+        tool_selection, usage = await parse_llm_json(
+            llm=llm,
+            messages=[
+                SystemMessage(content=arg_prompt),
+                HumanMessage(content=current_step),
+            ],
+            node_name="execute",
+            fallback={"arguments": {}, "step": current_step},
+        )
+        tool_selection["tool"] = classified_tool
     else:
         tool_selection, usage = await parse_llm_json(
             llm=llm,
