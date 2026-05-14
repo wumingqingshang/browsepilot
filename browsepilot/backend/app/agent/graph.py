@@ -105,11 +105,8 @@ def _route_reflect(state: AgentState) -> str:
         logger.warning("Stagnation detected (count={}), forcing answer", state["stagnation_count"])
         return "answer"
 
-    # Step limit: each step costs ~2-3 node invocations. Stop at 10 steps
-    # (~20-30 node calls) to stay well under LangGraph's hard recursion_limit.
-    if len(state.get("execution_log", [])) >= 10:
-        logger.warning("Step limit reached ({} steps), forcing answer", len(state["execution_log"]))
-        return "answer"
+    # Step limit is now handled by reflect_node (dual-layer: plan_step_count + total_steps).
+    # No redundant check here — reflect_node sets stop_reason before routing.
 
     # Original routing logic
     if state.get("need_replan"):
