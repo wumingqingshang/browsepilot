@@ -108,6 +108,64 @@ def classify_tool(step: str) -> str | None:
     return best_tool if best_score >= THRESHOLD else None
 
 
+def extract_args(tool: str, step: str) -> tuple[dict | None, bool]:
+    """Try to extract arguments for a tool from step description text.
+
+    Returns (args_dict_or_None, is_complete).
+    - ({"url": "..."}, True): all required args extracted, skip LLM
+    - ({"text": "..."}, False): partial args, need LLM for remaining
+    - (None, False): nothing extractable, need full LLM
+    """
+    if tool == "navigate":
+        m = re.search(r"https?://[^\s]+", step)
+        if m:
+            return {"url": m.group(0)}, True
+        m = re.search(r"([a-z]+\.(?:com|cn|org)[^\s]*)", step)
+        if m:
+            return {"url": "https://" + m.group(0)}, True
+        return None, False
+
+    if tool == "screenshot":
+        return {}, True
+
+    if tool == "get_content":
+        return {}, True
+
+    if tool == "get_page_structure":
+        return {}, True
+
+    if tool == "type_text":
+        # Extract text to type, but selector needs page structure → LLM
+        text = None
+        for pat in [
+            r"输入['“\"‘](.+?)['”\"’]",
+            r'输入["“](.+?)["”]',
+            r"输入['‘](.+?)['’]",
+            r"输入(.+?)(?:$|，|。|,|\.)",
+        ]:
+            m = re.search(pat, step)
+            if m:
+                text = m.group(1).strip()
+                break
+        if text and len(text) <= 200:
+            return {"text": text}, False  # partial: need LLM for selector
+        return None, False  # need full LLM
+
+    if tool == "scroll":
+        direction = "down"
+        if "上" in step or "up" in step.lower():
+            direction = "up"
+        return {"direction": direction}, True
+
+    if tool == "click":
+        return None, False  # always needs LLM for selector
+
+    if tool == "execute_script":
+        return None, False  # always needs LLM for script content
+
+    return None, False
+
+
 def compute_plan_similarity(old_plan: list[str], new_plan: list[str]) -> float:
     """Jaccard similarity on character-level tokens. No LLM."""
     def tokenize(steps):
@@ -423,22 +481,50 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         recent_context=recent_context,
     )
 
-    # Scoring classifier hint: if confident, suggest the tool to LLM
+    # Scoring classifier: try to skip LLM for obvious tool+arg combinations
     classified_tool = classify_tool(current_step)
+    usage = None
     if classified_tool:
-        logger.info("[execute_node] Classifier recommends: {} (score >= {})", classified_tool, THRESHOLD)
-        prompt += f"\n\nHint: the recommended tool for this step is '{classified_tool}'. "
-        prompt += "Use it unless you have a strong reason to pick another tool."
+        logger.info("[execute_node] Classifier selected: {} (score >= {})", classified_tool, THRESHOLD)
+        extracted_args, is_complete = extract_args(classified_tool, current_step)
+        if extracted_args is not None and is_complete:
+            # All args extracted from step text — skip LLM entirely
+            tool_selection = {"tool": classified_tool, "arguments": extracted_args, "step": current_step}
+            logger.info("[execute_node] Args extracted, skipping LLM: {}", extracted_args)
+        else:
+            # Partial or no args — LLM fills remaining
+            arg_prompt = prompt + (
+                f"\n\nThe tool is '{classified_tool}'. "
+                "Only return the arguments for this tool. "
+                "Return JSON: {\"arguments\": {...}, \"step\": \"...\"}"
+            )
+            if extracted_args:
+                arg_prompt += f"\nAlready known arguments (do not change): {json.dumps(extracted_args, ensure_ascii=False)}"
+            try:
+                llm_result, usage = await parse_llm_json(
+                    llm=llm,
+                    messages=[SystemMessage(content=arg_prompt), HumanMessage(content=current_step)],
+                    node_name="execute",
+                    fallback=None,
+                    max_retries=0,
+                )
+                if llm_result and isinstance(llm_result.get("arguments"), dict):
+                    if extracted_args:
+                        llm_result["arguments"] = {**extracted_args, **llm_result["arguments"]}
+                    tool_selection = {"tool": classified_tool, "arguments": llm_result.get("arguments", {}), "step": llm_result.get("step", current_step)}
+                else:
+                    raise ValueError("LLM returned no valid arguments")
+            except Exception:
+                logger.warning("[execute_node] Classifier+LLM path failed, falling through to full LLM selection")
+                classified_tool = None  # trigger full LLM path below
 
-    tool_selection, usage = await parse_llm_json(
-        llm=llm,
-        messages=[
-            SystemMessage(content=prompt),
-            HumanMessage(content=current_step),
-        ],
-        node_name="execute",
-        fallback={"tool": "get_content", "arguments": {}, "step": current_step},
-    )
+    if not classified_tool:
+        tool_selection, usage = await parse_llm_json(
+            llm=llm,
+            messages=[SystemMessage(content=prompt), HumanMessage(content=current_step)],
+            node_name="execute",
+            fallback={"tool": "get_content", "arguments": {}, "step": current_step},
+        )
 
     token_usage = accumulate_tokens(state.get("token_usage", {}), usage, "execute")
 
@@ -813,6 +899,11 @@ def _build_replan_context(state: AgentState):
             for key in ("result", "content", "screenshot_base64"):
                 if key in r and isinstance(r[key], str):
                     r[key] = r[key][:500] + "..." if len(r[key]) > 500 else r[key]
+            # Truncate structure arrays to avoid massive element lists in replan
+            if "structure" in r and isinstance(r["structure"], dict):
+                for field in ("inputs", "buttons", "links"):
+                    if field in r["structure"] and isinstance(r["structure"][field], list):
+                        r["structure"][field] = r["structure"][field][:3]
             e["result"] = r
         truncated_log.append(e)
     text += f"{json.dumps(truncated_log, ensure_ascii=False, indent=2)}\n"

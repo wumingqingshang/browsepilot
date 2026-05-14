@@ -32,8 +32,8 @@ class SSEData:
         return {"event": "replan", "data": {"new_steps": new_steps}}
 
     @staticmethod
-    def token_update(prompt: int, completion: int) -> dict:
-        return {"event": "token_update", "data": {"prompt": prompt, "completion": completion}}
+    def token_update(prompt: int, completion: int, estimated: bool = False) -> dict:
+        return {"event": "token_update", "data": {"prompt": prompt, "completion": completion, "estimated": estimated}}
 
     @staticmethod
     def answer_chunk(content: str) -> dict:

@@ -14,6 +14,7 @@ export const useChatStore = defineStore('chat', {
     screenshot: null,
     promptTokens: 0,
     completionTokens: 0,
+    tokenEstimated: false,
     sessionId: null,
     error: null,
     isViewingHistory: false,
@@ -33,6 +34,7 @@ export const useChatStore = defineStore('chat', {
       this.screenshot = null
       this.promptTokens = 0
       this.completionTokens = 0
+      this.tokenEstimated = false
       this.error = null
       this.isViewingHistory = false
     },
@@ -90,6 +92,7 @@ export const useChatStore = defineStore('chat', {
         case 'token_update':
           this.promptTokens = d.prompt || 0
           this.completionTokens = d.completion || 0
+          this.tokenEstimated = d.estimated || false
           break
 
         case 'answer_chunk':

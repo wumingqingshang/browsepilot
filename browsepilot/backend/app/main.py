@@ -211,22 +211,46 @@ async def chat_stream(request: Request):
 
                     elif node_name == "answer":
                         yield SSEData.thinking_status("answering", "正在生成最终回答...")
-                        # Stream answer token by token
                         answer_messages = node_output.get("answer_messages", [])
                         if answer_messages:
                             from backend.app.agent.nodes import get_llm
                             llm = get_llm()
                             full_text = ""
+                            last_chunk = None
                             async for chunk in llm.astream(answer_messages):
+                                last_chunk = chunk
                                 if hasattr(chunk, "content") and chunk.content:
                                     full_text += chunk.content
                                     yield SSEData.answer_chunk(chunk.content)
-                            # Send final answer with token usage
-                            total = len(full_text)  # rough token estimate
-                            yield SSEData.final_answer(full_text, total)
-                            # Accumulate tokens from the streamed response
+                            # Collect answer token usage
+                            answer_usage = None
+                            token_estimated = True
+                            if last_chunk and hasattr(last_chunk, "usage_metadata"):
+                                um = last_chunk.usage_metadata
+                                if isinstance(um, dict) and um.get("input_tokens"):
+                                    answer_usage = um
+                                    token_estimated = False
+                            if answer_usage is None:
+                                from backend.app.agent.nodes import estimate_tokens
+                                # Estimate: answer_messages prompt + completion
+                                est_prompt = sum(estimate_tokens(str(m.content)) for m in answer_messages if hasattr(m, "content"))
+                                answer_usage = {"input_tokens": est_prompt, "output_tokens": estimate_tokens(full_text)}
+                            # Accumulate into state
                             if accumulated_state:
+                                from backend.app.agent.nodes import accumulate_tokens
+                                accumulated_state["token_usage"] = accumulate_tokens(
+                                    accumulated_state.get("token_usage", {}), answer_usage, "answer"
+                                )
                                 accumulated_state["final_answer"] = full_text
+                                if token_estimated:
+                                    accumulated_state["token_usage"]["estimated"] = True
+                                # Send token update with estimated flag
+                                tu = accumulated_state["token_usage"]
+                                yield SSEData.token_update(
+                                    tu.get("prompt", 0), tu.get("completion", 0),
+                                    estimated=token_estimated,
+                                )
+                            yield SSEData.final_answer(full_text, estimate_tokens(full_text))
                         else:
                             yield SSEData.final_answer("", 0)
 

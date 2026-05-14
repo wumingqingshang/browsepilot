@@ -44,4 +44,5 @@ export interface ChatState {
   sessionId: string | null
   error: string | null
   isViewingHistory: boolean
+  tokenEstimated: boolean
 }
