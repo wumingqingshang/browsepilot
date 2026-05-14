@@ -114,6 +114,7 @@ async def chat_stream(request: Request):
                     "replan_count": history.get("replan_count", 0),
                     "stagnation_warning": False,
                     "completion_check_count": history.get("completion_check_count", 0),
+                    "plan_step_count": 0,
                 }
             else:
                 initial_state: AgentState = {
@@ -128,6 +129,7 @@ async def chat_stream(request: Request):
                     "need_replan": False,
                     "final_answer": "",
                     "total_steps": 0,
+                    "plan_step_count": 0,
                     "token_usage": {"prompt": 0, "completion": 0, "breakdown": {}},
                     "consecutive_failures": 0,
                     "stagnation_count": 0,

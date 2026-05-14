@@ -15,7 +15,6 @@ async def click(selector: str, ctx: Context) -> dict:
     try:
         await page.wait_for_selector(selector, timeout=5000)
 
-        # Capture URL before click to detect navigation
         url_before = page.url
 
         await page.click(selector)
@@ -24,17 +23,24 @@ async def click(selector: str, ctx: Context) -> dict:
         try:
             await page.wait_for_load_state("networkidle", timeout=5000)
         except Exception:
-            pass  # No navigation or timeout — continue anyway
+            pass
+
+        url_after = page.url
 
         # If URL changed, wait a bit more for dynamic content
-        if page.url != url_before:
+        if url_after != url_before:
             try:
                 await asyncio.wait_for(page.wait_for_load_state("domcontentloaded"), timeout=3)
             except Exception:
                 pass
 
         screenshot = await browser.screenshot()
-        return {"status": "success", "screenshot_base64": screenshot}
+        return {
+            "status": "success",
+            "screenshot_base64": screenshot,
+            "url_before": url_before,
+            "url_after": url_after,
+        }
     except Exception as e:
         screenshot = await browser.screenshot()
         return {"status": "error", "error": "selector_not_found", "detail": str(e), "screenshot_base64": screenshot}

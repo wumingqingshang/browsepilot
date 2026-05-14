@@ -410,6 +410,7 @@ Return ONLY JSON."""
         "need_replan": False,
         "execution_log": state.get("execution_log") or [],
         "token_usage": token_usage,
+        "plan_step_count": 0,
     }
 
 
@@ -591,6 +592,7 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         "plan": new_plan,
         "retry_count": retry_count,
         "total_steps": state.get("total_steps", 0) + 1,
+        "plan_step_count": state.get("plan_step_count", 0) + 1,
         "token_usage": token_usage,
         "messages": state["messages"] + [
             HumanMessage(content=f"步骤: {current_step}"),
@@ -672,6 +674,20 @@ def _run_heuristic_checks(state: AgentState) -> dict:
                 "issue_type": "few_elements",
                 "detail": "No interactive elements found — page may be blank or broken",
             }
+
+    # Check 5: Click that should trigger navigation but URL didn't change
+    if last_entry.get("tool") == "click" and last_entry.get("result", {}).get("status") == "success":
+        step_text = last_entry.get("step", "")
+        nav_keywords = ("搜索", "提交", "跳转", "登录", "注册", "登录", "确认", "submit", "login", "search", "进入", "下一页")
+        if any(kw in step_text for kw in nav_keywords):
+            url_before = last_result.get("url_before", "")
+            url_after = last_result.get("url_after", "")
+            if url_before and url_after and url_before == url_after:
+                return {
+                    "has_issue": True,
+                    "issue_type": "click_no_navigation",
+                    "detail": "Clicked element expected to navigate, but URL did not change",
+                }
 
     return {"has_issue": False, "issue_type": None, "detail": ""}
 
@@ -841,10 +857,16 @@ async def reflect_node(state: AgentState) -> dict:
         logger.warning("[reflect_node] Stagnation detected: {}", state["stagnation_count"])
         return {"plan": [], "need_replan": False,
                 "stop_reason": "连续多步结果高度相似，判断陷入死循环，按照现有搜集到的材料组织回答"}
-    if len(state.get("execution_log", [])) >= 10:
-        logger.warning("[reflect_node] Step limit reached: {}", len(state["execution_log"]))
+    plan_steps = state.get("plan_step_count", 0)
+    total_steps_all = state.get("total_steps", len(state.get("execution_log", [])))
+    if plan_steps >= 10:
+        logger.warning("[reflect_node] Plan step limit reached: {} steps in current plan", plan_steps)
         return {"plan": [], "need_replan": False,
-                "stop_reason": "执行步骤已达上限，按照现有搜集到的材料组织回答"}
+                "stop_reason": f"当前计划已执行 {plan_steps} 步，达到单轮上限，按照现有搜集到的材料组织回答"}
+    if total_steps_all >= 20:
+        logger.warning("[reflect_node] Total step limit reached: {} total steps", total_steps_all)
+        return {"plan": [], "need_replan": False,
+                "stop_reason": f"总计已执行 {total_steps_all} 步，达到全局上限，按照现有搜集到的材料组织回答"}
 
     # Level 1: Heuristic check on last step (code-level, zero LLM cost)
     heuristic_result = _run_heuristic_checks(state)
@@ -995,6 +1017,7 @@ Return ONLY the JSON array, nothing else."""
             "stagnation_count": state.get("stagnation_count", 0) + 1,
             "replan_count": state.get("replan_count", 0) + 1,
             "token_usage": token_usage,
+            "plan_step_count": 0,
         }
 
     if similarity > 0.8:
@@ -1006,6 +1029,7 @@ Return ONLY the JSON array, nothing else."""
             "replan_count": state.get("replan_count", 0) + 1,
             "need_replan": False,
             "token_usage": token_usage,
+            "plan_step_count": 0,
         }
 
     return {
@@ -1015,6 +1039,7 @@ Return ONLY the JSON array, nothing else."""
         "replan_count": state.get("replan_count", 0) + 1,
         "need_replan": False,
         "token_usage": token_usage,
+        "plan_step_count": 0,
     }
 
 
