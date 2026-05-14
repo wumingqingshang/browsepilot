@@ -80,6 +80,9 @@ async def chat_stream(request: Request):
                         execution_log=accumulated_state.get("execution_log", []),
                         final_answer=accumulated_state.get("final_answer", ""),
                         token_usage=accumulated_state.get("token_usage", {}),
+                        stop_reason=accumulated_state.get("stop_reason", ""),
+                        total_steps=accumulated_state.get("total_steps", 0),
+                        plan_step_count=accumulated_state.get("plan_step_count", 0),
                     )
                     session_manager.persist(session_id)
             except Exception:
@@ -270,6 +273,9 @@ async def chat_stream(request: Request):
                     execution_log=accumulated_state.get("execution_log", []),
                     final_answer=accumulated_state.get("final_answer", ""),
                     token_usage=accumulated_state.get("token_usage", {}),
+                    stop_reason=accumulated_state.get("stop_reason", ""),
+                    total_steps=accumulated_state.get("total_steps", 0),
+                    plan_step_count=accumulated_state.get("plan_step_count", 0),
                 )
             session_manager.persist(session_id)
 

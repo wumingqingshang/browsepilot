@@ -16,8 +16,8 @@ class AgentState(TypedDict):
     need_replan: bool
     final_answer: str
     token_usage: dict  # {"prompt": 0, "completion": 0, "breakdown": {"classify": {...}, "plan": {...}, ...}}
-    total_steps: int  # Global step counter (never reset), upper limit 20
-    plan_step_count: int  # Steps within current plan (reset on replan), upper limit 10
+    total_steps: int  # Global step counter (never reset), upper limit 30
+    plan_step_count: int  # Steps within current plan (reset on replan), upper limit 15
     completion_check_count: int  # max 1 completion check per session
     consecutive_failures: int  # consecutive step failures
     stagnation_count: int  # stagnation detection counter

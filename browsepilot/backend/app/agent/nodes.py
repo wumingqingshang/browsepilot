@@ -351,12 +351,12 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
 
 请根据用户任务，生成一个JSON格式的执行步骤列表。每个步骤是一个自然语言描述的简单操作。
 规则：
-1. 导航到页面后，始终先获取页面结构（get_page_structure）找到目标元素的精确选择器
-2. 根据页面结构中的实际选择器执行操作
+1. 每个操作尽量合并：获取页面结构后，如果找到了需要的选择器，直接在下一步使用，不要再获取一次结构
+2. 步骤总数控制在 5-7 步以内，减少不必要的 get_page_structure 重复调用
 3. 不要猜测选择器（如 input[type='text']），应从页面结构中获取
 4. 搜索类任务默认访问 https://www.bing.com，不要使用百度
 
-格式示例：["导航到 https://github.com", "获取页面结构，找到搜索框的选择器", "在找到的搜索框中输入关键字", "获取页面结构，找到搜索按钮的选择器", "点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
+格式示例（紧凑版）：["导航到 https://github.com", "获取页面结构，找到搜索框和搜索按钮的选择器", "在搜索框中输入关键字，点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
 只返回JSON数组，不要包含其他内容。步骤要具体、可执行。"""
 
     plan, usage = await parse_llm_json(
@@ -859,11 +859,11 @@ async def reflect_node(state: AgentState) -> dict:
                 "stop_reason": "连续多步结果高度相似，判断陷入死循环，按照现有搜集到的材料组织回答"}
     plan_steps = state.get("plan_step_count", 0)
     total_steps_all = state.get("total_steps", len(state.get("execution_log", [])))
-    if plan_steps >= 10:
+    if plan_steps >= 15:
         logger.warning("[reflect_node] Plan step limit reached: {} steps in current plan", plan_steps)
         return {"plan": [], "need_replan": False,
                 "stop_reason": f"当前计划已执行 {plan_steps} 步，达到单轮上限，按照现有搜集到的材料组织回答"}
-    if total_steps_all >= 20:
+    if total_steps_all >= 30:
         logger.warning("[reflect_node] Total step limit reached: {} total steps", total_steps_all)
         return {"plan": [], "need_replan": False,
                 "stop_reason": f"总计已执行 {total_steps_all} 步，达到全局上限，按照现有搜集到的材料组织回答"}
