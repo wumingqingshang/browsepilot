@@ -423,39 +423,22 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         recent_context=recent_context,
     )
 
-    # Try scoring classifier first — if confident, let LLM only fill arguments
+    # Scoring classifier hint: if confident, suggest the tool to LLM
     classified_tool = classify_tool(current_step)
     if classified_tool:
-        logger.info("[execute_node] Classifier selected tool: {} (score >= {})", classified_tool, THRESHOLD)
-        # LLM only needs to extract arguments; tool is already chosen
-        arg_prompt = EXECUTE_SYSTEM_PROMPT.format(
-            tools_desc=tools_desc,
-            recent_context=recent_context,
-        )
-        # Add a clear instruction that the tool is fixed
-        arg_prompt += f"\n\nIMPORTANT: The tool has already been chosen as '{classified_tool}'. "
-        arg_prompt += "You only need to provide the correct arguments for this tool based on the step description. "
-        arg_prompt += "Return JSON: {{\"arguments\": {{...}}, \"step\": \"brief step description\"}}"
-        tool_selection, usage = await parse_llm_json(
-            llm=llm,
-            messages=[
-                SystemMessage(content=arg_prompt),
-                HumanMessage(content=current_step),
-            ],
-            node_name="execute",
-            fallback={"arguments": {}, "step": current_step},
-        )
-        tool_selection["tool"] = classified_tool
-    else:
-        tool_selection, usage = await parse_llm_json(
-            llm=llm,
-            messages=[
-                SystemMessage(content=prompt),
-                HumanMessage(content=current_step),
-            ],
-            node_name="execute",
-            fallback={"tool": "get_content", "arguments": {}, "step": current_step},
-        )
+        logger.info("[execute_node] Classifier recommends: {} (score >= {})", classified_tool, THRESHOLD)
+        prompt += f"\n\nHint: the recommended tool for this step is '{classified_tool}'. "
+        prompt += "Use it unless you have a strong reason to pick another tool."
+
+    tool_selection, usage = await parse_llm_json(
+        llm=llm,
+        messages=[
+            SystemMessage(content=prompt),
+            HumanMessage(content=current_step),
+        ],
+        node_name="execute",
+        fallback={"tool": "get_content", "arguments": {}, "step": current_step},
+    )
 
     token_usage = accumulate_tokens(state.get("token_usage", {}), usage, "execute")
 
