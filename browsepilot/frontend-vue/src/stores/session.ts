@@ -47,6 +47,7 @@ export const useSessionStore = defineStore('session', {
           sessionId,
           data.task || '',
           data.final_answer || '',
+          data.token_usage || undefined,
         )
       } catch {
         // Silently ignore
