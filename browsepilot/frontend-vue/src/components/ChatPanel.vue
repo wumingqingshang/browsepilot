@@ -50,7 +50,7 @@ const scrollRef = ref<HTMLDivElement>()
 
 const messages = computed(() => store.messages)
 const processing = computed(() => store.processing)
-const isViewingHistory = computed(() => !store.processing && store.sessionId && store.messages.length > 0 && !store.phase)
+const isViewingHistory = computed(() => store.isViewingHistory)
 
 // Auto-scroll to bottom when new messages arrive
 watch(

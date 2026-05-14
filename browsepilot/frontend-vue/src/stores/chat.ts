@@ -16,6 +16,7 @@ export const useChatStore = defineStore('chat', {
     completionTokens: 0,
     sessionId: null,
     error: null,
+    isViewingHistory: false,
   }),
 
   getters: {
@@ -33,6 +34,7 @@ export const useChatStore = defineStore('chat', {
       this.promptTokens = 0
       this.completionTokens = 0
       this.error = null
+      this.isViewingHistory = false
     },
 
     dispatchEvent(event: SSEEvent) {
@@ -128,6 +130,7 @@ export const useChatStore = defineStore('chat', {
     addUserMessage(task: string) {
       this.messages.push({ role: 'user', content: task })
       this.processing = true
+      this.isViewingHistory = false
     },
 
     finishProcessing() {
@@ -150,6 +153,7 @@ export const useChatStore = defineStore('chat', {
       this.planSteps = []
       this.currentStepIndex = 0
       this.totalSteps = 0
+      this.isViewingHistory = true
     },
   },
 })
