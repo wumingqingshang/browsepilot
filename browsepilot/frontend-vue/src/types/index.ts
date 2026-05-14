@@ -18,6 +18,8 @@ export interface SessionSummary {
   task_summary: string
   created_at: string
   status: string
+  custom_name?: string
+  pinned?: boolean
 }
 
 export interface ReplayStep {
