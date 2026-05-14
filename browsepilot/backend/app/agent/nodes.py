@@ -49,6 +49,65 @@ def repair_json(candidate: str) -> str:
     return candidate
 
 
+# --- Tool scoring classifier ---
+
+TOOL_RULES = {
+    "navigate": {
+        "keywords": ["导航到", "访问", "打开", "跳转到"],
+        "patterns": [r"https?://\S+", r"[a-z]+\.(com|cn|org)"],
+    },
+    "get_page_structure": {
+        "keywords": ["页面结构", "获取结构", "选择器", "CSS", "元素列表"],
+        "patterns": [r"获取.*结构", r"找到.*选择器"],
+    },
+    "type_text": {
+        "keywords": ["输入", "键入", "填写", "搜索"],
+        "patterns": [r"在.{0,20}(输入|键入|填写|搜索)"],
+    },
+    "click": {
+        "keywords": ["点击", "按下", "提交"],
+        "patterns": [r"点击.{0,20}(按钮|链接|搜索)"],
+    },
+    "get_content": {
+        "keywords": ["页面内容", "获取内容", "提取"],
+        "patterns": [r"获取.*(内容|文字|数据)"],
+    },
+    "screenshot": {
+        "keywords": ["截图"],
+        "patterns": [r"截图|screenshot"],
+    },
+    "scroll": {
+        "keywords": ["滚动", "翻页"],
+        "patterns": [r"滚动|scroll|翻页"],
+    },
+    "execute_script": {
+        "keywords": ["脚本", "执行脚本"],
+        "patterns": [r"执行.*脚本|execute_script"],
+    },
+}
+
+THRESHOLD = 2  # minimum score to trust classifier over LLM
+
+
+def classify_tool(step: str) -> str | None:
+    """Score all tools against the step description. Returns tool name
+    if best score >= THRESHOLD, else None (LLM fallback)."""
+    best_tool = None
+    best_score = 0
+    for tool_name, rules in TOOL_RULES.items():
+        score = 0
+        for kw in rules["keywords"]:
+            if kw in step:
+                score += 1
+        for pat in rules["patterns"]:
+            if re.search(pat, step):
+                score += 2
+        if score > best_score:
+            best_score = score
+            best_tool = tool_name
+    return best_tool if best_score >= THRESHOLD else None
+
+
 def compute_plan_similarity(old_plan: list[str], new_plan: list[str]) -> float:
     """Jaccard similarity on character-level tokens. No LLM."""
     def tokenize(steps):
@@ -301,7 +360,10 @@ Available tools:
 {tools_desc}
 
 Core rules:
-1. Before clicking or typing, ALWAYS use get_page_structure first to find actual selectors
+1. If the previous step already used get_page_structure and returned selectors,
+   reuse those selectors. Only call get_page_structure again when:
+   - The page has navigated to a new URL, OR
+   - The previous structure did not contain the element you need
 2. ONLY use selectors returned by get_page_structure — never invent or guess selectors
 3. Execute ONE operation at a time
 
@@ -347,20 +409,36 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         elif isinstance(result, dict) and result.get("content"):
             recent_context += f"\n页面文本摘要（前500字）：{result['content'][:500]}\n"
 
+    # Append tool call history so LLM knows what's been done
+    if state["execution_log"]:
+        recent_context += "\nPreviously executed tools:\n"
+        for i, entry in enumerate(state["execution_log"][-5:]):
+            tool = entry.get("tool", "unknown")
+            status = "success" if entry.get("result", {}).get("status") != "error" else "failed"
+            step_desc = entry.get("step", "")[:60]
+            recent_context += f"{i+1}. {tool} ({status}) — {step_desc}\n"
+
     prompt = EXECUTE_SYSTEM_PROMPT.format(
         tools_desc=tools_desc,
         recent_context=recent_context,
     )
 
-    tool_selection, usage = await parse_llm_json(
-        llm=llm,
-        messages=[
-            SystemMessage(content=prompt),
-            HumanMessage(content=current_step),
-        ],
-        node_name="execute",
-        fallback={"tool": "get_content", "arguments": {}, "step": current_step},
-    )
+    # Try scoring classifier first — if confident, skip LLM tool selection
+    classified_tool = classify_tool(current_step)
+    if classified_tool:
+        logger.info("[execute_node] Classifier selected tool: {} (score >= {})", classified_tool, THRESHOLD)
+        tool_selection = {"tool": classified_tool, "arguments": {}, "step": current_step}
+        usage = None
+    else:
+        tool_selection, usage = await parse_llm_json(
+            llm=llm,
+            messages=[
+                SystemMessage(content=prompt),
+                HumanMessage(content=current_step),
+            ],
+            node_name="execute",
+            fallback={"tool": "get_content", "arguments": {}, "step": current_step},
+        )
 
     token_usage = accumulate_tokens(state.get("token_usage", {}), usage, "execute")
 
@@ -450,18 +528,19 @@ def _run_heuristic_checks(state: AgentState) -> dict:
     if not isinstance(last_result, dict):
         return {"has_issue": False, "issue_type": None, "detail": ""}
 
-    # Check 1: Page content too short
-    content_text = last_result.get("result", last_result.get("content", ""))
-    if isinstance(content_text, str) and content_text.strip():
-        # Strip HTML tags for meaningful text length check
-        import re as _re
-        clean = _re.sub(r"<[^>]+>", "", content_text).strip()
-        if len(clean) < 50:
-            return {
-                "has_issue": True,
-                "issue_type": "content_short",
-                "detail": f"Page content only {len(clean)} meaningful characters",
-            }
+    # Check 1: Page content too short — only for get_content tool
+    if last_entry.get("tool") == "get_content":
+        content_text = last_result.get("result", last_result.get("content", ""))
+        if isinstance(content_text, str) and content_text.strip():
+            # Strip HTML tags for meaningful text length check
+            import re as _re
+            clean = _re.sub(r"<[^>]+>", "", content_text).strip()
+            if len(clean) < 50:
+                return {
+                    "has_issue": True,
+                    "issue_type": "content_short",
+                    "detail": f"Page content only {len(clean)} meaningful characters",
+                }
 
     # Check 2: URL domain check — compare navigate result with expected domain
     step = last_entry.get("step", "")
