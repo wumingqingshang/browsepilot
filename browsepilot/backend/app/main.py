@@ -62,7 +62,10 @@ async def chat_stream(request: Request):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    session_manager.create_session(session_id)
+    # Only create session if not resuming an existing one
+    history = session_manager.get_history(session_id)
+    if not history:
+        session_manager.create_session(session_id)
     session_manager.update(session_id, task=task)
     logger.info("Starting session {} with task: {}", session_id, task[:80])
 
@@ -90,30 +93,58 @@ async def chat_stream(request: Request):
             graph = build_graph(mcp_client, lazy_mcp=True)
             # MCP will be connected lazily when classify routes to browser_task
 
-            initial_state: AgentState = {
-                "messages": [],
-                "task": task,
-                "session_id": session_id,
-                "intent": "",
-                "plan": [],
-                "execution_log": [],
-                "degradation_log": [],
-                "retry_count": 0,
-                "need_replan": False,
-                "final_answer": "",
-                "total_steps": 0,
-                "token_usage": {"prompt": 0, "completion": 0, "breakdown": {}},
-                "consecutive_failures": 0,
-                "stagnation_count": 0,
-                "replan_count": 0,
-                "stagnation_warning": False,
-                "completion_check_count": 0,
-            }
+            # If resuming an existing session, restore its full state
+            if history:
+                logger.info("Resuming existing session {}", session_id)
+                initial_state: AgentState = {
+                    "messages": history.get("messages", []),
+                    "task": history.get("task", task),
+                    "session_id": session_id,
+                    "intent": history.get("intent", "browser_task"),
+                    "plan": history.get("plan", []),
+                    "execution_log": history.get("execution_log", []),
+                    "degradation_log": history.get("degradation_log", []),
+                    "retry_count": history.get("retry_count", 0),
+                    "need_replan": False,
+                    "final_answer": history.get("final_answer", ""),
+                    "total_steps": history.get("total_steps", len(history.get("execution_log", []))),
+                    "token_usage": history.get("token_usage", {"prompt": 0, "completion": 0, "breakdown": {}}),
+                    "consecutive_failures": history.get("consecutive_failures", 0),
+                    "stagnation_count": history.get("stagnation_count", 0),
+                    "replan_count": history.get("replan_count", 0),
+                    "stagnation_warning": False,
+                    "completion_check_count": history.get("completion_check_count", 0),
+                }
+            else:
+                initial_state: AgentState = {
+                    "messages": [],
+                    "task": task,
+                    "session_id": session_id,
+                    "intent": "",
+                    "plan": [],
+                    "execution_log": [],
+                    "degradation_log": [],
+                    "retry_count": 0,
+                    "need_replan": False,
+                    "final_answer": "",
+                    "total_steps": 0,
+                    "token_usage": {"prompt": 0, "completion": 0, "breakdown": {}},
+                    "consecutive_failures": 0,
+                    "stagnation_count": 0,
+                    "replan_count": 0,
+                    "stagnation_warning": False,
+                    "completion_check_count": 0,
+                }
 
             graph_config = {
                 "recursion_limit": 100,
                 "configurable": {"thread_id": session_id},
             }
+
+            # For resumed sessions, append the new user message
+            if history:
+                from langchain_core.messages import HumanMessage
+                initial_state["messages"].append(HumanMessage(content=task))
 
             accumulated_state = dict(initial_state)
             yield SSEData.session_created(session_id)

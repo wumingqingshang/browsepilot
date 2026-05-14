@@ -133,12 +133,16 @@ export const useChatStore = defineStore('chat', {
       this.processing = false
     },
 
-    viewHistory(sessionId: string, task: string, answer: string) {
+    viewHistory(sessionId: string, task: string, answer: string, tokenUsage?: { prompt: number; completion: number }) {
       this.sessionId = sessionId
       this.messages = [
         { role: 'user', content: task },
         { role: 'assistant', content: answer },
       ]
+      if (tokenUsage) {
+        this.promptTokens = tokenUsage.prompt || 0
+        this.completionTokens = tokenUsage.completion || 0
+      }
       this.processing = false
       this.phase = null
       this.screenshot = null

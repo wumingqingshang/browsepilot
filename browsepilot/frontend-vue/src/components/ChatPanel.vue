@@ -23,14 +23,15 @@
       </div>
     </div>
 
-    <!-- Input — hidden when viewing history; shown otherwise -->
-    <div v-if="!isViewingHistory" class="px-4 pb-3">
-      <ChatInput :disabled="processing" @submit="onSubmit" />
+    <!-- History banner -->
+    <div v-if="isViewingHistory" class="px-4 pt-2">
+      <div class="bg-surface border border-card-border px-3 py-2 text-[12px] text-text-muted font-serif">
+        正在查看历史会话 — 发送消息将继续此会话
+      </div>
     </div>
-    <div v-else class="px-4 pb-3 text-center">
-      <span class="text-[11px] text-text-disabled font-serif italic">
-        正在查看历史会话 — 点击「新建会话」返回
-      </span>
+    <!-- Input — always shown -->
+    <div class="px-4 pb-3">
+      <ChatInput :disabled="processing" @submit="onSubmit" />
     </div>
   </div>
 </template>
