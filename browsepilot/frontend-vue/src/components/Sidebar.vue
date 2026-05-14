@@ -87,6 +87,7 @@ onMounted(() => {
 })
 
 function onSelectSession(id: string) {
+  chatStore.sessionId = id
   sessionStore.loadSessionHistory(id)
 }
 
