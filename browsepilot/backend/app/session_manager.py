@@ -81,12 +81,12 @@ class SessionManager:
         ]
 
     def list_sessions(self) -> list[dict]:
-        """返回会话列表，每个会话含 id、task 摘要、创建时间、状态。"""
+        """List sessions, pinned first, then by creation time descending."""
         sessions_dir = Path(f"{settings.data_dir}/sessions")
         if not sessions_dir.exists():
             return []
         results = []
-        for f in sorted(sessions_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for f in sessions_dir.glob("*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
                 session_id = data.get("session_id") or f.stem
@@ -97,9 +97,14 @@ class SessionManager:
                     "task_summary": (data.get("task", "") or "")[:30],
                     "created_at": data.get("created_at", ""),
                     "status": data.get("status", "unknown"),
+                    "custom_name": data.get("custom_name", ""),
+                    "pinned": data.get("pinned", False),
                 })
             except (json.JSONDecodeError, OSError):
                 continue
+        # pinned first, then by created_at descending within each group
+        results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+        results.sort(key=lambda r: 0 if r.get("pinned") else 1)
         return results
 
     def delete_session(self, session_id: str) -> bool:
@@ -110,6 +115,30 @@ class SessionManager:
             logger.info("Session {} deleted", session_id)
             return True
         return False
+
+    def rename_session(self, session_id: str, name: str) -> bool:
+        """Set custom_name on session and persist."""
+        filepath = Path(f"{settings.data_dir}/sessions/{session_id}.json")
+        if not filepath.exists():
+            return False
+        data = json.loads(filepath.read_text(encoding="utf-8"))
+        data["custom_name"] = name
+        filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        if session_id in self._active_sessions:
+            self._active_sessions[session_id]["custom_name"] = name
+        return True
+
+    def toggle_pin(self, session_id: str, pinned: bool) -> bool:
+        """Set pinned flag on session and persist."""
+        filepath = Path(f"{settings.data_dir}/sessions/{session_id}.json")
+        if not filepath.exists():
+            return False
+        data = json.loads(filepath.read_text(encoding="utf-8"))
+        data["pinned"] = pinned
+        filepath.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        if session_id in self._active_sessions:
+            self._active_sessions[session_id]["pinned"] = pinned
+        return True
 
     def _delete_session_files(self, session_id: str):
         """Delete session JSON + all associated screenshots + empty dirs."""

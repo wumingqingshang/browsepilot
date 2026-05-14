@@ -37,6 +37,43 @@ export const useSessionStore = defineStore('session', {
       }
     },
 
+    async renameSession(id: string, name: string) {
+      try {
+        const resp = await fetch(`${API_BASE}/sessions/${id}/rename`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        })
+        if (resp.ok) {
+          const s = this.sessions.find(s => s.id === id)
+          if (s) s.custom_name = name
+        }
+      } catch {
+        // Silently ignore
+      }
+    },
+
+    async togglePin(id: string, pinned: boolean) {
+      try {
+        const resp = await fetch(`${API_BASE}/sessions/${id}/pin`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinned }),
+        })
+        if (resp.ok) {
+          const s = this.sessions.find(s => s.id === id)
+          if (s) s.pinned = pinned
+          // Re-sort: pinned first
+          this.sessions.sort((a, b) => {
+            if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+            return 0
+          })
+        }
+      } catch {
+        // Silently ignore
+      }
+    },
+
     async loadSessionHistory(sessionId: string) {
       try {
         const resp = await fetch(`${API_BASE}/history/${sessionId}`)

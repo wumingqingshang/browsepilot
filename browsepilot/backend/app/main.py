@@ -321,6 +321,28 @@ async def delete_session(session_id: str):
     return JSONResponse(content={"ok": True})
 
 
+@app.patch("/sessions/{session_id}/rename")
+async def rename_session(session_id: str, request: Request):
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    ok = session_manager.rename_session(session_id, name)
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found")
+    return JSONResponse(content={"ok": True})
+
+
+@app.patch("/sessions/{session_id}/pin")
+async def toggle_pin(session_id: str, request: Request):
+    body = await request.json()
+    pinned = body.get("pinned", False)
+    ok = session_manager.toggle_pin(session_id, bool(pinned))
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found")
+    return JSONResponse(content={"ok": True})
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
