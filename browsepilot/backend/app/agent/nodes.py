@@ -513,7 +513,12 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
                 if llm_result and isinstance(llm_result.get("arguments"), dict):
                     if extracted_args:
                         llm_result["arguments"] = {**extracted_args, **llm_result["arguments"]}
-                    tool_selection = {"tool": classified_tool, "arguments": llm_result.get("arguments", {}), "step": llm_result.get("step", current_step)}
+                    merged_args = llm_result.get("arguments", {})
+                    # Validate: tools that require args must get non-empty args
+                    REQUIRES_ARGS = {"click", "type_text", "navigate", "execute_script"}
+                    if classified_tool in REQUIRES_ARGS and not merged_args:
+                        raise ValueError(f"{classified_tool} requires arguments but LLM returned empty dict")
+                    tool_selection = {"tool": classified_tool, "arguments": merged_args, "step": llm_result.get("step", current_step)}
                 else:
                     raise ValueError("LLM returned no valid arguments")
             except Exception:
@@ -689,6 +694,15 @@ def _run_heuristic_checks(state: AgentState) -> dict:
                     "issue_type": "click_no_navigation",
                     "detail": "Clicked element expected to navigate, but URL did not change",
                 }
+
+    # Check 6: MCP validation error wrapped as success result
+    result_text = last_result.get("result", "")
+    if isinstance(result_text, str) and result_text.startswith("Error executing tool"):
+        return {
+            "has_issue": True,
+            "issue_type": "mcp_validation_error",
+            "detail": result_text[:200],
+        }
 
     return {"has_issue": False, "issue_type": None, "detail": ""}
 
