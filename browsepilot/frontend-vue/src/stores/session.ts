@@ -61,13 +61,9 @@ export const useSessionStore = defineStore('session', {
           body: JSON.stringify({ pinned }),
         })
         if (resp.ok) {
-          const s = this.sessions.find(s => s.id === id)
-          if (s) s.pinned = pinned
-          // Re-sort: pinned first
-          this.sessions.sort((a, b) => {
-            if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
-            return 0
-          })
+          // Re-fetch from backend for correct sort order
+          // (backend sorts pinned-first, then created_at desc within each group)
+          await this.fetchList()
         }
       } catch {
         // Silently ignore
