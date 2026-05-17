@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     small_model_base_url: str = ""  # empty = fallback to openai_base_url
 
     llm_vision_enabled: bool = False
+    default_search_url: str = "https://www.bing.com"
     browser_headless: bool = True
     browser_channel: str = ""
     browser_timeout: int = 15000

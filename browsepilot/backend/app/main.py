@@ -118,6 +118,8 @@ async def chat_stream(request: Request):
                     "stagnation_warning": False,
                     "completion_check_count": history.get("completion_check_count", 0),
                     "plan_step_count": 0,
+                    "page_structure": history.get("page_structure", {}),
+                    "page_screenshot": history.get("page_screenshot", ""),
                 }
             else:
                 initial_state: AgentState = {
@@ -133,6 +135,8 @@ async def chat_stream(request: Request):
                     "final_answer": "",
                     "total_steps": 0,
                     "plan_step_count": 0,
+                    "page_structure": {},
+                    "page_screenshot": "",
                     "token_usage": {"prompt": 0, "completion": 0, "breakdown": {}},
                     "consecutive_failures": 0,
                     "stagnation_count": 0,
