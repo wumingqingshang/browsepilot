@@ -21,30 +21,32 @@
 ```
                    ┌─ chitchat ──────────→ answer ─→ END
 START → classify ──┼─ knowledge_qa ──────→ answer ─→ END
-                   └─ browser_task ─→ MCP连接 → plan → execute → reflect
-                                                           ↑         ↓
-                                                           │    ┌────┴────┐
-                                                           │    │ 成功？    │
-                                                           │    └─────────┘
-                                                           │     │        │
-                                                           │    是        否
-                                                           │     │        │
-                                                           │     ▼        ▼
-                                                           │  弹出步骤   保留步骤
-                                                           │     │        │
-                                                           │     ▼        ▼
-                                                           └──execute  LLM深度反思
-                                                                        │
-                                                            ┌───────────┴───────────┐
-                                                            │ retry    replan   answer │
-                                                            └─────────────────────────┘
+                   └─ browser_task ─→ MCP连接 → pre_observe → plan → execute → reflect
+                                                                    ↑         ↓
+                                                                    │    ┌────┴────┐
+                                                                    │    │ 成功？    │
+                                                                    │    └─────────┘
+                                                                    │     │        │
+                                                                    │    是        否
+                                                                    │     │        │
+                                                                    │     ▼        ▼
+                                                                    │  弹出步骤   保留步骤
+                                                                    │     │        │
+                                                                    │     ▼        ▼
+                                                                    └──execute  LLM深度反思
+                                                                                 │
+                                                                     ┌───────────┴───────────┐
+                                                                     │ retry    replan   answer │
+                                                                     └─────────────────────────┘
 ```
 
 **关键设计**：
 
-- **步骤只在成功时弹出**：失败步骤保留在 plan 中等待重试（`retry_count` 上限 2 次），避免"失败后直接跳到下一步"的 bug
-- **完工检查**：plan 所有步骤执行完毕后，LLM 检查已收集信息是否足以回答用户，不足则自动补充 1-3 步
-- **plan 自检**：生成执行计划后追加一次 LLM 评估，验证计划能否满足用户意图
+- **pre_observe 页面感知**：plan 之前导航到目标页面并获取真实 DOM 结构（输入框、按钮、链接及 CSS 选择器），LLM 基于真实页面生成计划而非凭空猜测选择器。零 LLM 调用（仅 MCP navigate + get_page_structure）
+- **搜索引擎选择器注入**：Bing / Baidu / Google 的搜索框和结果页 URL 模板预先配置，type_text 和搜索提交绕过 LLM 直接使用验证选择器，消除"点不到按钮"类错误
+- **步骤只在成功时弹出**：失败步骤保留在 plan 中等待重试（`retry_count` 上限 2 次）
+- **完工检查**：plan 步骤执行完毕后，LLM 结合 few-shot 示例判断信息是否足够回答用户
+- **plan 自检**：生成执行计划后追加一次 LLM 评估
 
 ### 两级反思机制
 
@@ -60,6 +62,21 @@ START → classify ──┼─ knowledge_qa ──────→ answer ─→
 通过 → 继续执行。未通过 → 触发级别二。
 
 **级别二 — LLM 深度反思**：仅在步骤失败或级别一告警时触发，分析错误原因，决策 retry（同步骤重试）/ replan（换方案）/ answer（放弃回答）。
+
+### 多轮对话会话管理
+
+同一聊天窗口支持连续多任务，每轮（turn）独立保留执行记录和回答：
+
+```
+Session #ABC ─┬─ turn 0: "搜索500-700元机械键盘" → 推荐 VGN V98 Pro、RK R87...
+              ├─ turn 1: "详细介绍一下VGN V98 Pro"  → 结合上轮推荐展开介绍
+              └─ turn 2: "对比一下和AULA F75"       → 理解前两轮上下文给出对比
+```
+
+- **记忆**：plan_node 注入前 3 轮的任务和回答摘要到 system prompt，模型能理解追问和上下文
+- **硬约束**：单 session 最多 10 轮，累计 token 超 100k 自动拒绝——防膨胀和成本失控
+- **回放**：前端 get_replay API 可按 turn_index 切换查看任意轮次
+- **向后兼容**：旧格式 session（单任务）被自动包装为单 turn
 
 ### 容错与熔断
 
@@ -95,8 +112,8 @@ LLM 超时降级策略：plan → 默认三步骤 / execute → 跳过 / reflect
 │                  FastAPI Backend                          │
 │  ┌─────────────────────────────────────────────────┐    │
 │  │  LangGraph Agent                                 │    │
-│  │  classify → plan → execute → reflect/replan → answer │
-│  │  State: AgentState (16 tracked fields)           │    │
+│  │  classify → pre_observe → plan → execute → reflect/replan → answer │
+│  │  State: AgentState (22 tracked fields)           │    │
 │  └────────────────────┬────────────────────────────┘    │
 │  ┌────────────────────┴────────────────────────────┐    │
 │  │  MCPClient (transport abstraction)              │    │
@@ -215,7 +232,7 @@ browsepilot/
 │   ├── server.py                 # FastMCP server (Streamable HTTP)
 │   ├── browser_pool.py           # BrowserPool: 预热·上限·排队·回收
 │   ├── browser_manager.py        # Playwright 生命周期 + 健康检查
-│   └── tools/                    # 8 个浏览器工具 (+ asyncio 超时)
+│   └── tools/                    # 8 个浏览器工具 + search_engines 选择器配置
 ├── backend/app/
 │   ├── main.py                   # FastAPI 入口 + /chat/stream SSE
 │   ├── config.py                 # 配置: 显式 .env 加载 + 启动校验
@@ -224,9 +241,9 @@ browsepilot/
 │   ├── session_manager.py        # 会话管理: 并发限制·TTL·空间保护
 │   ├── events.py                 # SSE 事件类型
 │   └── agent/
-│       ├── graph.py              # StateGraph: 6 节点 + 条件路由 + 熔断
-│       ├── nodes.py              # 节点实现: 分类·规划·执行·反思·重规划·回答
-│       ├── state.py              # AgentState: 16 个追踪字段
+│       ├── graph.py              # StateGraph: 7 节点 + 条件路由 + 熔断
+│       ├── nodes.py              # 节点实现: 分类·预观测·规划·执行·反思·重规划·回答
+│       ├── state.py              # AgentState: 22 个追踪字段
 │       └── tools.py              # MCP 工具描述生成
 ├── frontend-vue/                 # Vue3 SPA 前端
 ├── data/                         # 运行时: 会话 JSON + 截图
@@ -240,7 +257,7 @@ browsepilot/
 |------|------|------|
 | `/chat/stream` | POST | SSE 流式 Agent 执行 |
 | `/history/{session_id}` | GET | 会话详情 |
-| `/replay/{session_id}` | GET | 回放步骤列表 |
+| `/replay/{session_id}?turn_index=-1` | GET | 回放步骤列表（可指定 turn） |
 | `/sessions` | GET | 会话列表 |
 | `/sessions/{session_id}` | DELETE | 删除会话 |
 | `/health` | GET | 健康检查 |
