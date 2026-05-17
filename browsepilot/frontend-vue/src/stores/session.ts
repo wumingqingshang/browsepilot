@@ -76,12 +76,15 @@ export const useSessionStore = defineStore('session', {
         if (!resp.ok) return
         const data = await resp.json()
         const chatStore = useChatStore()
-        chatStore.viewHistory(
-          sessionId,
-          data.task || '',
-          data.final_answer || '',
-          data.token_usage || undefined,
-        )
+        // Read from turns (new format) with fallback to top-level (old format)
+        const turns = data.turns || []
+        const lastTurn = turns.length ? turns[turns.length - 1] : {}
+        const task = lastTurn.task || data.task || ''
+        const answer = lastTurn.final_answer || data.final_answer || ''
+        const tokenUsage = lastTurn.token_usage || data.token_usage || undefined
+        chatStore.viewHistory(sessionId, task, answer, tokenUsage)
+        chatStore.turns = turns.map((t: any) => ({ turn_index: t.turn_index, task: t.task }))
+        chatStore.currentTurnIndex = turns.length ? turns.length - 1 : 0
       } catch {
         // Silently ignore
       }
