@@ -425,6 +425,22 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
 格式示例（紧凑版）：["导航到 https://github.com", "获取页面结构，找到搜索框和搜索按钮的选择器", "在搜索框中输入关键字", "点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
 只返回JSON数组，不要包含其他内容。步骤要具体、可执行。"""
 
+    # Inject turn history context at the beginning for multi-turn memory
+    turn_history = ""
+    session_turns = state.get("session_turns", [])
+    current_turn = state.get("turn_index", 0)
+    past_turns = [t for t in session_turns if t.get("turn_index", 0) < current_turn]
+    if past_turns:
+        turn_history = "=== 对话历史 ===\n"
+        turn_history += "以下是我们之前已经完成的对话轮次，请结合上下文理解当前任务：\n"
+        for pt in past_turns[-3:]:
+            turn_history += f"第{pt.get('turn_index', 0) + 1}轮 — 用户: {pt.get('task', '')}\n"
+            answer = pt.get('final_answer', '')
+            if answer:
+                turn_history += f"回答摘要: {answer[:300]}\n\n"
+        turn_history += "——\n\n"
+        system_prompt = turn_history + system_prompt
+
     # Inject page structure context if available
     page_context = ""
     struct = state.get("page_structure", {})
