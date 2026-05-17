@@ -51,14 +51,12 @@ class SessionManager:
             raise HTTPException(status_code=404, detail="Session not found")
         turns = session.get("turns", [])
 
-        # Hard constraint: max turns per session
         if len(turns) >= settings.max_turns_per_session:
             raise HTTPException(
                 status_code=429,
                 detail="max_turns_reached",
             )
 
-        # Hard constraint: max cumulative tokens
         total_tokens = sum(
             t.get("token_usage", {}).get("prompt", 0)
             + t.get("token_usage", {}).get("completion", 0)
@@ -132,6 +130,10 @@ class SessionManager:
 
     def get_history(self, session_id: str) -> dict | None:
         """Return session data. Wraps old single-task format into turns array."""
+        # Check in-memory first — avoids disk read for active sessions
+        session = self._active_sessions.get(session_id)
+        if session:
+            return session
         filepath = f"{settings.data_dir}/sessions/{session_id}.json"
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:
@@ -150,9 +152,6 @@ class SessionManager:
                     }
                 ]
             return data
-        session = self._active_sessions.get(session_id)
-        if session:
-            return session
         return None
 
     def get_replay(self, session_id: str, turn_index: int = -1) -> list[dict]:

@@ -140,7 +140,10 @@ async def chat_stream(request: Request):
                     "page_structure": history.get("page_structure", {}),
                     "page_screenshot": history.get("page_screenshot", ""),
                     "turn_index": turn.get("turn_index", 0) if turn else 0,
-                    "session_turns": history.get("turns", []),
+                    "session_turns": [
+                        {"turn_index": t.get("turn_index", 0), "task": t.get("task", ""), "final_answer": t.get("final_answer", "")}
+                        for t in history.get("turns", [])
+                    ],
                 }
             else:
                 initial_state: AgentState = {

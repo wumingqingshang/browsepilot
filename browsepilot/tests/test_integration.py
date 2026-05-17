@@ -18,7 +18,7 @@ from httpx import ASGITransport, AsyncClient
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.app.config import settings
-from backend.app.session_manager import SessionManager
+
 from backend.app.agent.nodes import classify_tool, TOOL_RULES, THRESHOLD
 
 
@@ -74,20 +74,6 @@ def test_classifier_returns_none_for_ambiguous():
     assert classify_tool("") is None
     # 纯聊天
     assert classify_tool("你好，今天天气怎么样") is None
-
-
-# ── R2 & R3: Session Manager ───────────────────────────────────────────
-
-@pytest.fixture
-def session_manager(tmp_path):
-    """Create a SessionManager pointed at a temp directory."""
-    original = settings.data_dir
-    settings.data_dir = str(tmp_path)
-    os.makedirs(f"{tmp_path}/sessions", exist_ok=True)
-    sm = SessionManager(max_active_sessions=10)
-    yield sm
-    settings.data_dir = original
-
 
 def test_create_and_persist_session(session_manager):
     sm = session_manager
