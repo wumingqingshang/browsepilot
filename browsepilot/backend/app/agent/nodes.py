@@ -409,11 +409,38 @@ async def plan_node(state: AgentState, mcp_client) -> dict:
 格式示例（紧凑版）：["导航到 https://github.com", "获取页面结构，找到搜索框和搜索按钮的选择器", "在搜索框中输入关键字", "点击搜索按钮", "获取搜索结果页面内容", "回答用户"]
 只返回JSON数组，不要包含其他内容。步骤要具体、可执行。"""
 
+    # Inject page structure context if available
+    page_context = ""
+    struct = state.get("page_structure", {})
+    if isinstance(struct, dict):
+        s = struct.get("structure", struct) if struct else {}
+        has_elements = s.get("inputs") or s.get("buttons") or s.get("links")
+        if has_elements:
+            page_context = "\n\n=== 当前页面真实结构（基于此生成计划，禁止编造选择器） ===\n"
+            page_context += "页面结构已获取，无需在计划中再次调用 get_page_structure。\n"
+            if s.get("inputs"):
+                page_context += f"输入框: {json.dumps(s['inputs'][:5], ensure_ascii=False)}\n"
+            if s.get("buttons"):
+                page_context += f"按钮: {json.dumps(s['buttons'][:5], ensure_ascii=False)}\n"
+            if s.get("links"):
+                page_context += f"链接: {json.dumps(s['links'][:5], ensure_ascii=False)}\n"
+
+    system_prompt += page_context
+
+    human_input = state["task"]
+    human_content = human_input
+
+    if settings.llm_vision_enabled and state.get("page_screenshot"):
+        human_content = [
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{state['page_screenshot']}"}},
+            {"type": "text", "text": human_input},
+        ]
+
     plan, usage = await parse_llm_json(
         llm=llm,
         messages=[
             SystemMessage(content=system_prompt),
-            HumanMessage(content=state["task"]),
+            HumanMessage(content=human_content),
         ],
         node_name="plan",
         fallback=[state["task"], "回答用户"],
