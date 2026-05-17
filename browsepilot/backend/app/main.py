@@ -99,28 +99,24 @@ async def chat_stream(request: Request):
             # If resuming an existing session, restore its full state
             if history:
                 logger.info("Resuming existing session {}", session_id)
-                old_task = history.get("task", "")
-                is_new_task = task != old_task
-                if is_new_task:
-                    logger.info("New task in resumed session, resetting plan and intent")
                 initial_state: AgentState = {
                     "messages": history.get("messages", []),
                     "task": task,  # Always use the current request's task
                     "session_id": session_id,
-                    "intent": history.get("intent", "browser_task") if not is_new_task else "",
-                    "plan": history.get("plan", []) if not is_new_task else [],
-                    "execution_log": history.get("execution_log", []) if not is_new_task else [],
+                    "intent": history.get("intent", "browser_task"),
+                    "plan": history.get("plan", []),
+                    "execution_log": history.get("execution_log", []),
                     "degradation_log": history.get("degradation_log", []),
-                    "retry_count": history.get("retry_count", 0) if not is_new_task else 0,
+                    "retry_count": history.get("retry_count", 0),
                     "need_replan": False,
                     "final_answer": history.get("final_answer", ""),
-                    "total_steps": history.get("total_steps", len(history.get("execution_log", []))) if not is_new_task else 0,
+                    "total_steps": history.get("total_steps", len(history.get("execution_log", []))),
                     "token_usage": history.get("token_usage", {"prompt": 0, "completion": 0, "breakdown": {}}),
-                    "consecutive_failures": history.get("consecutive_failures", 0) if not is_new_task else 0,
-                    "stagnation_count": history.get("stagnation_count", 0) if not is_new_task else 0,
-                    "replan_count": history.get("replan_count", 0) if not is_new_task else 0,
+                    "consecutive_failures": history.get("consecutive_failures", 0),
+                    "stagnation_count": history.get("stagnation_count", 0),
+                    "replan_count": history.get("replan_count", 0),
                     "stagnation_warning": False,
-                    "completion_check_count": history.get("completion_check_count", 0) if not is_new_task else 0,
+                    "completion_check_count": history.get("completion_check_count", 0),
                     "plan_step_count": 0,
                     "page_structure": history.get("page_structure", {}),
                     "page_screenshot": history.get("page_screenshot", ""),
