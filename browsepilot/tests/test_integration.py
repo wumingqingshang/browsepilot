@@ -92,13 +92,15 @@ def session_manager(tmp_path):
 def test_create_and_persist_session(session_manager):
     sm = session_manager
     sm.create_session("test-001")
-    sm.update("test-001", task="搜索 Python 教程")
+    sm.start_turn("test-001", "搜索 Python 教程")
     sm.persist("test-001")
 
     history = sm.get_history("test-001")
     assert history is not None
-    assert history["task"] == "搜索 Python 教程"
+    turns = history["turns"]
+    assert turns[-1]["task"] == "搜索 Python 教程"
     assert history["status"] == "completed"
+    assert turns[-1]["status"] == "completed"
 
 
 def test_rename_session(session_manager):
@@ -196,10 +198,10 @@ def api_client():
 @pytest.fixture
 def api_session(api_client):
     """Create a session and persist it for API tests."""
-    # We'll create & persist via session_manager directly
     from backend.app.main import session_manager as sm
     sm.create_session("api-test-001")
-    sm.update("api-test-001", task="test task for API")
+    sm.start_turn("api-test-001", "test task for API")
+    sm.update_current_turn("api-test-001", token_usage={"prompt": 100, "completion": 50})
     sm.persist("api-test-001")
     yield "api-test-001"
     # Clean up
@@ -289,8 +291,10 @@ async def test_history_endpoint_returns_token_usage(api_session):
         resp = await client.get(f"/history/{api_session}")
         assert resp.status_code == 200
         data = resp.json()
-        assert "token_usage" in data
-        assert "messages" in data or "execution_log" in data
+        turns = data.get("turns", [])
+        assert len(turns) > 0
+        assert "token_usage" in turns[-1]
+        assert "execution_log" in turns[-1]
 
 
 @pytest.mark.asyncio

@@ -31,6 +31,8 @@ class Settings(BaseSettings):
 
     llm_vision_enabled: bool = False
     default_search_url: str = "https://www.bing.com"
+    max_turns_per_session: int = 10
+    max_session_tokens: int = 100000
     browser_headless: bool = True
     browser_channel: str = ""
     browser_timeout: int = 15000

@@ -27,3 +27,5 @@ class AgentState(TypedDict):
     answer_messages: list  # prepared messages for streaming answer generation
     page_structure: dict
     page_screenshot: str
+    turn_index: int
+    session_turns: list[dict]  # past turn summaries, injected by main.py, not persisted
