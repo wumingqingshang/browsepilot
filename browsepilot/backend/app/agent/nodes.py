@@ -327,6 +327,56 @@ async def classify_node(state: AgentState) -> dict:
         "token_usage": token_usage,
     }
 
+async def pre_observe_node(state: AgentState, mcp_client) -> dict:
+    """Navigate to target page and capture structure so plan_node knows the real DOM."""
+    import re as _re
+    task = state["task"]
+    url = settings.default_search_url
+    # Match URL, strip trailing Chinese punctuation
+    m = _re.search(r"https?://\S+", task)
+    if m:
+        raw = m.group(0)
+        url = _re.sub(r"[，。！？；：\"\"''（）【】、《》…—]+$", "", raw)
+
+    logger.info("[pre_observe] Navigating to {} for page observation", url)
+
+    page_structure = {}
+    page_screenshot = ""
+
+    try:
+        nav_result = await mcp_client.call_tool("navigate", {"url": url})
+        if isinstance(nav_result, dict) and nav_result.get("status") == "error":
+            logger.warning("[pre_observe] Navigate failed: {}", nav_result.get("error", ""))
+    except Exception as e:
+        logger.warning("[pre_observe] Navigate exception: {}", e)
+
+    try:
+        struct_result = await mcp_client.call_tool("get_page_structure", {})
+        if isinstance(struct_result, dict):
+            page_structure = struct_result
+            s = struct_result.get("structure", struct_result)
+            if isinstance(s, dict):
+                logger.info("[pre_observe] Structure: {} inputs, {} buttons, {} links",
+                    len(s.get("inputs", [])), len(s.get("buttons", [])), len(s.get("links", [])))
+    except Exception as e:
+        logger.warning("[pre_observe] get_page_structure exception: {}", e)
+
+    if settings.llm_vision_enabled:
+        try:
+            img_result = await mcp_client.call_tool("screenshot", {})
+            if isinstance(img_result, dict) and img_result.get("screenshot_base64"):
+                page_screenshot = img_result["screenshot_base64"]
+                logger.info("[pre_observe] Screenshot captured ({} chars)", len(page_screenshot))
+        except Exception as e:
+            logger.warning("[pre_observe] Screenshot exception: {}", e)
+
+    return {
+        "page_structure": page_structure,
+        "page_screenshot": page_screenshot,
+    }
+
+
+
 
 async def plan_node(state: AgentState, mcp_client) -> dict:
     """Generate a structured execution plan from the user task."""
