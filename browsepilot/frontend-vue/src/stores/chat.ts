@@ -65,9 +65,11 @@ export const useChatStore = defineStore('chat', {
           break
 
         case 'step_start':
-          // Increment locally — step_index is global across replans,
-          // but currentStepIndex should track position within current plan
-          this.currentStepIndex += 1
+          // Cap at totalSteps to handle retries pushing count past plan length
+          this.currentStepIndex = Math.min(
+            this.currentStepIndex + 1,
+            this.totalSteps,
+          )
           break
 
         case 'screenshot':

@@ -37,7 +37,8 @@ const label = computed(() => {
   const p = store.phase
   if (!p) return ''
   if (p === 'executing' && store.totalSteps > 0) {
-    return `执行中 — 步骤 ${store.currentStepIndex}/${store.totalSteps}`
+    const displayIndex = Math.min(store.currentStepIndex, store.totalSteps)
+    return `执行中 — 步骤 ${displayIndex}/${store.totalSteps}`
   }
   return LABELS[p] || p
 })
