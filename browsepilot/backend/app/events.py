@@ -52,5 +52,9 @@ class SSEData:
         return {"event": "error", "data": {"message": message}}
 
     @staticmethod
-    def session_created(session_id: str) -> dict:
-        return {"event": "session_created", "data": {"session_id": session_id}}
+    def session_created(session_id: str, turn_index: int = 0) -> dict:
+        return {"event": "session_created", "data": {"session_id": session_id, "turn_index": turn_index}}
+
+    @staticmethod
+    def turn_started(turn_index: int) -> dict:
+        return {"event": "turn_started", "data": {"turn_index": turn_index}}

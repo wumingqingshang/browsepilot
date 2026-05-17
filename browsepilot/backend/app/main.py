@@ -62,12 +62,22 @@ async def chat_stream(request: Request):
     if not task:
         raise HTTPException(status_code=400, detail="task is required")
 
-    # Only create session if not resuming an existing one
+    # Session lifecycle: create new or start a new turn in existing session
     history = session_manager.get_history(session_id)
     if not history:
         session_manager.create_session(session_id)
-    session_manager.update(session_id, task=task)
-    logger.info("Starting session {} with task: {}", session_id, task[:80])
+        turn = session_manager.start_turn(session_id, task)
+        logger.info("New session {} turn {} with task: {}", session_id, turn["turn_index"], task[:80])
+    else:
+        turns = history.get("turns", [])
+        last_turn = turns[-1] if turns else {}
+        last_turn_completed = bool(last_turn.get("final_answer", ""))
+        if task != last_turn.get("task", "") or last_turn_completed:
+            turn = session_manager.start_turn(session_id, task)
+            logger.info("Session {} new turn {} with task: {}", session_id, turn["turn_index"], task[:80])
+        else:
+            turn = last_turn
+            logger.info("Session {} reusing turn {} (same task, incomplete): {}", session_id, turn.get("turn_index", 0), task[:80])
 
     mcp_client = MCPClient(get_mcp_server_config("browser-mcp"))
 
@@ -76,13 +86,11 @@ async def chat_stream(request: Request):
             """Persist partial state and close MCP on exception."""
             try:
                 if accumulated_state:
-                    session_manager.update(session_id,
+                    session_manager.update_current_turn(session_id,
                         execution_log=accumulated_state.get("execution_log", []),
                         final_answer=accumulated_state.get("final_answer", ""),
                         token_usage=accumulated_state.get("token_usage", {}),
-                        stop_reason=accumulated_state.get("stop_reason", ""),
-                        total_steps=accumulated_state.get("total_steps", 0),
-                        plan_step_count=accumulated_state.get("plan_step_count", 0),
+                        status="failed",
                     )
                     session_manager.persist(session_id)
             except Exception:
@@ -99,19 +107,30 @@ async def chat_stream(request: Request):
             # If resuming an existing session, restore its full state
             if history:
                 logger.info("Resuming existing session {}", session_id)
+                # Determine if we're reusing an incomplete turn or starting fresh
+                if task == last_turn.get("task", "") and not last_turn_completed:
+                    use_execution_log = last_turn.get("execution_log", [])
+                    use_final_answer = last_turn.get("final_answer", "")
+                    use_token_usage = last_turn.get("token_usage", {})
+                    use_total_steps = len(use_execution_log)
+                else:
+                    use_execution_log = []
+                    use_final_answer = ""
+                    use_token_usage = {"prompt": 0, "completion": 0, "breakdown": {}}
+                    use_total_steps = 0
                 initial_state: AgentState = {
                     "messages": history.get("messages", []),
-                    "task": task,  # Always use the current request's task
+                    "task": task,
                     "session_id": session_id,
                     "intent": history.get("intent", "browser_task"),
                     "plan": history.get("plan", []),
-                    "execution_log": history.get("execution_log", []),
+                    "execution_log": use_execution_log,
                     "degradation_log": history.get("degradation_log", []),
                     "retry_count": history.get("retry_count", 0),
                     "need_replan": False,
-                    "final_answer": history.get("final_answer", ""),
-                    "total_steps": history.get("total_steps", len(history.get("execution_log", []))),
-                    "token_usage": history.get("token_usage", {"prompt": 0, "completion": 0, "breakdown": {}}),
+                    "final_answer": use_final_answer,
+                    "total_steps": use_total_steps,
+                    "token_usage": use_token_usage,
                     "consecutive_failures": history.get("consecutive_failures", 0),
                     "stagnation_count": history.get("stagnation_count", 0),
                     "replan_count": history.get("replan_count", 0),
@@ -120,6 +139,8 @@ async def chat_stream(request: Request):
                     "plan_step_count": 0,
                     "page_structure": history.get("page_structure", {}),
                     "page_screenshot": history.get("page_screenshot", ""),
+                    "turn_index": turn.get("turn_index", 0) if turn else 0,
+                    "session_turns": history.get("turns", []),
                 }
             else:
                 initial_state: AgentState = {
@@ -143,6 +164,8 @@ async def chat_stream(request: Request):
                     "replan_count": 0,
                     "stagnation_warning": False,
                     "completion_check_count": 0,
+                    "turn_index": turn.get("turn_index", 0) if turn else 0,
+                    "session_turns": [],
                 }
 
             graph_config = {
@@ -156,7 +179,7 @@ async def chat_stream(request: Request):
                 initial_state["messages"].append(HumanMessage(content=task))
 
             accumulated_state = dict(initial_state)
-            yield SSEData.session_created(session_id)
+            yield SSEData.session_created(session_id, initial_state.get("turn_index", 0))
 
             # Stream with session timeout via asyncio.wait_for on each __anext__()
             timeout = getattr(settings, 'session_timeout_seconds', 300)
@@ -270,16 +293,13 @@ async def chat_stream(request: Request):
                             tu.get("prompt", 0), tu.get("completion", 0)
                         )
 
-            # Persist session using accumulated state (primary) with
-            # LangGraph native state as backup verification
+            # Persist session using accumulated state
             if accumulated_state:
-                session_manager.update(session_id,
+                session_manager.update_current_turn(session_id,
                     execution_log=accumulated_state.get("execution_log", []),
                     final_answer=accumulated_state.get("final_answer", ""),
                     token_usage=accumulated_state.get("token_usage", {}),
-                    stop_reason=accumulated_state.get("stop_reason", ""),
-                    total_steps=accumulated_state.get("total_steps", 0),
-                    plan_step_count=accumulated_state.get("plan_step_count", 0),
+                    status="completed",
                 )
             session_manager.persist(session_id)
 
@@ -327,12 +347,16 @@ async def get_history(session_id: str):
 
 
 @app.get("/replay/{session_id}")
-async def get_replay(session_id: str):
+async def get_replay(session_id: str, turn_index: int = -1):
     session = session_manager.get_history(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
+    turns = session.get("turns", [])
+    if turn_index == -1:
+        turn_index = len(turns) - 1 if turns else 0
+    target_turn = turns[turn_index] if 0 <= turn_index < len(turns) else {}
     steps = []
-    for i, e in enumerate(session.get("execution_log", [])):
+    for i, e in enumerate(target_turn.get("execution_log", [])):
         step_data = {
             "step_index": i,
             "step": e.get("step", ""),
