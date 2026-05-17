@@ -329,14 +329,13 @@ async def classify_node(state: AgentState) -> dict:
 
 async def pre_observe_node(state: AgentState, mcp_client) -> dict:
     """Navigate to target page and capture structure so plan_node knows the real DOM."""
-    import re as _re
     task = state["task"]
     url = settings.default_search_url
     # Match URL, strip trailing Chinese punctuation
-    m = _re.search(r"https?://\S+", task)
+    m = re.search(r"https?://\S+", task)
     if m:
         raw = m.group(0)
-        url = _re.sub(r"[，。！？；：\"\"''（）【】、《》…—]+$", "", raw)
+        url = re.sub(r"[，。！？；：\"\"''（）【】、《》…—]+$", "", raw)
 
     logger.info("[pre_observe] Navigating to {} for page observation", url)
 
