@@ -204,7 +204,7 @@ class SessionManager:
                         "turn_count": len(turns),
                     }
                 )
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
                 continue
         results.sort(key=lambda r: r.get("created_at", ""), reverse=True)
         results.sort(key=lambda r: 0 if r.get("pinned") else 1)
