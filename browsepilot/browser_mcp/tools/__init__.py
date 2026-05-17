@@ -1,6 +1,7 @@
 """MCP tool implementations for browser automation."""
 
 import re
+from fnmatch import fnmatch
 from urllib.parse import urlparse
 
 ALLOWED_DOMAINS: list[str] = []
@@ -9,6 +10,17 @@ ALLOWED_DOMAINS: list[str] = []
 def set_allowed_domains(domains: list[str]) -> None:
     global ALLOWED_DOMAINS
     ALLOWED_DOMAINS = domains
+
+
+def _match_hostname(hostname: str, pattern: str) -> bool:
+    """Check if hostname matches a domain pattern.
+
+    Supports fnmatch wildcards (*, ?). When the pattern contains wildcards,
+    fnmatch is used. Otherwise falls back to exact match + subdomain match.
+    """
+    if "*" in pattern or "?" in pattern:
+        return fnmatch(hostname, pattern)
+    return hostname == pattern or hostname.endswith("." + pattern)
 
 
 def validate_url(url: str) -> tuple:
@@ -24,7 +36,7 @@ def validate_url(url: str) -> tuple:
         return True, ""
     hostname = parsed.hostname or ""
     allowed = any(
-        hostname == domain or hostname.endswith("." + domain)
+        _match_hostname(hostname, domain)
         for domain in ALLOWED_DOMAINS
     )
     if not allowed:

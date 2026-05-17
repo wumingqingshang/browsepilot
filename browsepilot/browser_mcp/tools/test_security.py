@@ -105,6 +105,58 @@ class TestValidateUrlWithWhitelist:
         assert "domain_not_allowed" in msg
 
 
+class TestValidateUrlWithWildcards:
+    """Tests for validate_url with fnmatch wildcard patterns."""
+
+    def teardown_method(self):
+        set_allowed_domains([])
+
+    def test_wildcard_star_dot_com_matches_any_com(self):
+        """*.com should match any .com domain."""
+        set_allowed_domains(["*.com"])
+        assert validate_url("https://github.com")[0] is True
+        assert validate_url("https://baidu.com")[0] is True
+        assert validate_url("https://sub.example.com")[0] is True
+        set_allowed_domains([])
+
+    def test_wildcard_star_dot_com_blocks_org(self):
+        """*.com should NOT match .org domains."""
+        set_allowed_domains(["*.com"])
+        is_valid, msg = validate_url("https://python.org")
+        assert is_valid is False
+        assert "domain_not_allowed" in msg
+        set_allowed_domains([])
+
+    def test_wildcard_star_dot_github_dot_star_matches_subdomain(self):
+        """*.github.* matches subdomain.github.com and subdomain.github.io."""
+        set_allowed_domains(["*.github.*"])
+        assert validate_url("https://api.github.com")[0] is True
+        assert validate_url("https://sub.github.io")[0] is True
+        set_allowed_domains([])
+
+    def test_wildcard_star_dot_github_dot_star_exact_requires_prefix(self):
+        """*.github.* does NOT match github.com (no text before first dot)."""
+        set_allowed_domains(["*.github.*"])
+        is_valid, msg = validate_url("https://github.com")
+        assert is_valid is False
+        assert "domain_not_allowed" in msg
+        set_allowed_domains([])
+
+    def test_wildcard_question_mark(self):
+        """? wildcard should match a single character."""
+        set_allowed_domains(["???-test.com"])
+        assert validate_url("https://abc-test.com")[0] is True
+        assert validate_url("https://ab-test.com")[0] is False
+        set_allowed_domains([])
+
+    def test_wildcard_question_mark(self):
+        """? wildcard should match single character."""
+        set_allowed_domains(["???-test.com"])
+        assert validate_url("https://abc-test.com")[0] is True
+        assert validate_url("https://ab-test.com")[0] is False
+        set_allowed_domains([])
+
+
 class TestFilterJsScript:
     """Tests for filter_js_script function."""
 
