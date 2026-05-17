@@ -20,6 +20,7 @@ export interface SessionSummary {
   status: string
   custom_name?: string
   pinned?: boolean
+  turn_count?: number
 }
 
 export interface ReplayStep {
@@ -45,4 +46,6 @@ export interface ChatState {
   error: string | null
   isViewingHistory: boolean
   tokenEstimated: boolean
+  turns: Array<{ turn_index: number; task: string }>
+  currentTurnIndex: number
 }

@@ -18,6 +18,8 @@ export const useChatStore = defineStore('chat', {
     sessionId: null,
     error: null,
     isViewingHistory: false,
+    turns: [] as Array<{ turn_index: number; task: string }>,
+    currentTurnIndex: 0,
   }),
 
   getters: {
@@ -37,6 +39,8 @@ export const useChatStore = defineStore('chat', {
       this.tokenEstimated = false
       this.error = null
       this.isViewingHistory = false
+      this.turns = []
+      this.currentTurnIndex = 0
     },
 
     dispatchEvent(event: SSEEvent) {
@@ -44,6 +48,17 @@ export const useChatStore = defineStore('chat', {
       switch (event.event) {
         case 'session_created':
           this.sessionId = d.session_id
+          this.turns = [{ turn_index: d.turn_index || 0, task: '' }]
+          this.currentTurnIndex = 0
+          break
+
+        case 'turn_started':
+          this.turns.push({ turn_index: d.turn_index, task: '' })
+          this.currentTurnIndex = d.turn_index
+          // Reset step tracking for new turn
+          this.currentStepIndex = 0
+          this.totalSteps = 0
+          this.planSteps = []
           break
 
         case 'thinking_status':
