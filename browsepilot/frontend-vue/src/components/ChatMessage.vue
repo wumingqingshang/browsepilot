@@ -5,8 +5,8 @@
       :class="[
         'max-w-[80%] leading-relaxed text-[15px]',
         role === 'user'
-          ? 'bg-surface border border-card-border px-3 py-2'
-          : 'bg-transparent px-3 py-2 message-content',
+          ? 'user-bubble px-3 py-2'
+          : 'assistant-bubble px-3 py-2 message-content',
       ]"
     >
       <template v-if="role === 'user'">

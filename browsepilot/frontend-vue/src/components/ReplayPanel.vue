@@ -1,11 +1,9 @@
 <!-- frontend-vue/src/components/ReplayPanel.vue -->
 <template>
   <div class="border-t border-border pt-3 mt-1 min-w-0 flex flex-col overflow-hidden h-full">
-    <div class="font-serif">
-      <span class="text-[15px] text-text-muted tracking-[2px] uppercase font-bold">
-        操作回放
-      </span>
-    </div>
+    <span class="font-sans text-[10px] text-text-muted-deep tracking-[1.5px] uppercase font-semibold">
+      操作回放
+    </span>
 
     <div v-if="!currentSessionId" class="text-text-disabled text-[12px] font-serif italic mt-2">
       点击左侧会话查看执行回放
@@ -22,7 +20,7 @@
       <div
         v-for="step in replaySteps"
         :key="step.step_index"
-        class="border border-card-border bg-surface p-2 min-w-0"
+        class="card p-2 min-w-0"
       >
         <div class="font-serif text-[12px] text-text-muted">
           Step {{ step.step_index }}: {{ step.step }}

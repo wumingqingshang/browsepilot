@@ -25,7 +25,7 @@
 
     <!-- History banner -->
     <div v-if="isViewingHistory" class="px-4 pt-2">
-      <div class="bg-surface border border-card-border px-3 py-2 text-[12px] text-text-muted font-serif">
+      <div class="bg-surface border border-card-border px-3 py-2 font-sans text-[11px] text-text-muted">
         正在查看历史会话 — 发送消息将继续此会话
       </div>
     </div>

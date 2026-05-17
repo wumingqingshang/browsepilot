@@ -1,8 +1,8 @@
 <!-- frontend-vue/src/components/ScreenshotViewer.vue -->
 <template>
-  <div class="border border-card-border bg-surface p-2 flex flex-col" style="max-height:35vh">
-    <div class="font-serif shrink-0">
-      <span class="text-[15px] text-text-muted tracking-[2px] uppercase font-bold">
+  <div class="card p-[14px] flex flex-col" style="max-height:35vh">
+    <div class="shrink-0">
+      <span class="font-sans text-[10px] text-text-muted-deep tracking-[1.5px] uppercase font-semibold">
         实时截图
       </span>
       <span v-if="isExecuting" class="live-dot ml-1.5"></span>

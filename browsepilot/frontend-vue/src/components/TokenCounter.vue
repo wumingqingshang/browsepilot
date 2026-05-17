@@ -1,16 +1,14 @@
 <!-- frontend-vue/src/components/TokenCounter.vue -->
 <template>
-  <div class="border border-card-border bg-surface p-2">
-    <div class="font-serif">
-      <span class="text-[15px] text-text-muted tracking-[2px] uppercase font-bold">
-        Token
-      </span>
-      <div class="text-[13px] text-text-muted mt-2 space-y-1">
-        <div>输入 <b class="text-text-primary text-[14px]">{{ promptTokens.toLocaleString() }}</b></div>
-        <div>输出 <b class="text-text-primary text-[14px]">{{ completionTokens.toLocaleString() }}</b></div>
-        <div class="border-t border-card-border mt-1 pt-1">
-          总计 <b class="text-accent text-[14px]">{{ totalTokens.toLocaleString() }}</b><span v-if="tokenEstimated" class="text-[10px] text-text-muted ml-1">(估算)</span>
-        </div>
+  <div class="card p-[14px]">
+    <span class="font-sans text-[10px] text-text-muted-deep tracking-[1.5px] uppercase font-semibold">
+      Token
+    </span>
+    <div class="text-[12px] text-text-muted mt-[10px] space-y-[3px]">
+      <div>输入 <b class="font-sans text-[13px] text-text-primary">{{ promptTokens.toLocaleString() }}</b></div>
+      <div>输出 <b class="font-sans text-[13px] text-text-primary">{{ completionTokens.toLocaleString() }}</b></div>
+      <div class="border-t border-border mt-[6px] pt-[6px]">
+        总计 <b class="font-sans text-[14px] text-accent">{{ totalTokens.toLocaleString() }}</b><span v-if="tokenEstimated" class="text-[10px] text-text-muted ml-1">(估算)</span>
       </div>
     </div>
   </div>
