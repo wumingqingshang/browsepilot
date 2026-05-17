@@ -43,7 +43,7 @@ START → classify ──┼─ knowledge_qa ──────→ answer ─→
 **关键设计**：
 
 - **pre_observe 页面感知**：plan 之前导航到目标页面并获取真实 DOM 结构（输入框、按钮、链接及 CSS 选择器），LLM 基于真实页面生成计划而非凭空猜测选择器。零 LLM 调用（仅 MCP navigate + get_page_structure）
-- **搜索引擎选择器注入**：Bing / Baidu / Google 的搜索框和结果页 URL 模板预先配置，type_text 和搜索提交绕过 LLM 直接使用验证选择器，消除"点不到按钮"类错误
+- **搜索引擎选择器注入**：Bing / Baidu / Google 的搜索框和结果页 URL 模板预先配置，在 execute 节点的参数提取环节，type_text 的 selector 和搜索提交的 URL 直接从配置取值，不再依赖 LLM 拼参数——LLM 仍然负责规划、反思和回答
 - **步骤只在成功时弹出**：失败步骤保留在 plan 中等待重试（`retry_count` 上限 2 次）
 - **完工检查**：plan 步骤执行完毕后，LLM 结合 few-shot 示例判断信息是否足够回答用户
 - **plan 自检**：生成执行计划后追加一次 LLM 评估
