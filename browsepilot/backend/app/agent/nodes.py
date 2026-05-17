@@ -360,6 +360,23 @@ async def pre_observe_node(state: AgentState, mcp_client) -> dict:
     except Exception as e:
         logger.warning("[pre_observe] get_page_structure exception: {}", e)
 
+    # Detect known search engines and inject verified selectors (only if page loaded)
+    if page_structure:
+        try:
+            from browser_mcp.tools.search_engines import match_search_engine, SEARCH_ENGINES
+            engine_name = match_search_engine(url)
+            if engine_name:
+                engine = SEARCH_ENGINES[engine_name]
+                page_structure["_search_engine"] = engine_name
+                page_structure["_known_selectors"] = {
+                    "input": engine["input_selector"],
+                    "submit": engine["submit_selector"],
+                }
+                logger.info("[pre_observe] Known search engine detected: {} (input={}, submit={})",
+                    engine_name, engine["input_selector"], engine["submit_selector"])
+        except Exception as e:
+            logger.warning("[pre_observe] Search engine detection failed: {}", e)
+
     if settings.llm_vision_enabled:
         try:
             img_result = await mcp_client.call_tool("screenshot", {})
@@ -563,6 +580,23 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
     if classified_tool:
         logger.info("[execute_node] Classifier selected: {} (score >= {})", classified_tool, THRESHOLD)
         extracted_args, is_complete = extract_args(classified_tool, current_step)
+
+        # Known search engine selector injection: bypass LLM for type_text/click selectors
+        if classified_tool in ("type_text", "click") and not is_complete:
+            ps = state.get("page_structure", {})
+            known = ps.get("_known_selectors", {})
+            if known:
+                if classified_tool == "type_text" and known.get("input"):
+                    if extracted_args is None:
+                        extracted_args = {}
+                    extracted_args["selector"] = known["input"]
+                    is_complete = True
+                    logger.info("[execute_node] Injected known search input selector: {}", known["input"])
+                elif classified_tool == "click" and known.get("submit"):
+                    extracted_args = {"selector": known["submit"]}
+                    is_complete = True
+                    logger.info("[execute_node] Injected known submit button selector: {}", known["submit"])
+
         if extracted_args is not None and is_complete:
             # All args extracted from step text — skip LLM entirely
             tool_selection = {"tool": classified_tool, "arguments": extracted_args, "step": current_step}
@@ -789,11 +823,35 @@ Summary of executed steps and collected information:
 Key page contents collected:
 {page_contents_summary}
 
-Is the collected information sufficient to adequately answer the user's question?
-- If SUFFICIENT: return {{"action": "answer"}}
-- If NOT SUFFICIENT: return {{"action": "continue", "extra_steps": ["specific step 1", "specific step 2", ...]}}
-  Maximum 3 extra steps. Each step should be a clear, executable browser action.
-Return ONLY JSON."""
+判断标准：已收集的信息是否足以给用户一个有用的回答？
+- "足够"不代表必须从页面抓取到每一个细节。模型可以结合自身知识补充。
+- 只要搜索结果或页面内容提供了事实依据（如产品名称、价格区间、文章标题），就视为足够。
+- 仅在页面内容完全为空、或用户明确要求从特定页面提取数据但未成功时，才判定为不够。
+
+示例1 — 足够：
+  任务："推荐三款100元以内的机械键盘"
+  已收集：Bing搜索结果页内容，包含多款键盘名称和价格提及
+  → {{"action": "answer"}}
+
+示例2 — 足够：
+  任务："总结这篇新闻的要点"
+  已收集：新闻页面正文内容（get_content返回约800字）
+  → {{"action": "answer"}}
+
+示例3 — 不够：
+  任务："查询我信用卡的当前余额"
+  已收集：银行首页内容（未登录，看不到余额）
+  → {{"action": "continue", "extra_steps": ["点击'登录'按钮", "输入用户名", "输入密码并提交"]}}
+
+示例4 — 不够：
+  任务："下载这个页面上的PDF报告"
+  已收集：页面结构中有3个链接，但不清楚哪个指向PDF
+  → {{"action": "continue", "extra_steps": ["逐个检查链接，找到.pdf结尾的URL"]}}
+
+现在判断：
+- 如果足够：{{"action": "answer"}}
+- 如果不够：{{"action": "continue", "extra_steps": ["步骤1", "步骤2", ...]}}（最多3步）
+只返回JSON。"""
 
 
 REFLECT_SYSTEM_PROMPT = """You are a browser automation reflection expert. Analyze the execution result and decide the next action.
