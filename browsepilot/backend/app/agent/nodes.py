@@ -375,8 +375,6 @@ async def pre_observe_node(state: AgentState, mcp_client) -> dict:
     }
 
 
-
-
 async def plan_node(state: AgentState, mcp_client) -> dict:
     """Generate a structured execution plan from the user task."""
     logger.info("[plan_node] Generating plan for task: {}", state["task"][:80])

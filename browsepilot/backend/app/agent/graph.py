@@ -70,7 +70,6 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
         },
     )
 
-    # Rest of edges unchanged
     workflow.add_edge("pre_observe", "plan")
     workflow.add_edge("plan", "execute")
     workflow.add_edge("execute", "reflect")
