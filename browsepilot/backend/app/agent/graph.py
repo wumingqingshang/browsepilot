@@ -8,7 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from backend.app.agent.state import AgentState
 from backend.app.agent.nodes import (
     plan_node, execute_node, reflect_node, replan_node, answer_node,
-    classify_node,
+    classify_node, pre_observe_node,
 )
 from backend.app.mcp_client import MCPClient
 from backend.app.agent.tools import build_tools_from_mcp
@@ -23,10 +23,14 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
     async def classify(state: AgentState) -> dict:
         return await classify_node(state)
 
-    async def plan(state: AgentState) -> dict:
-        # Lazy MCP connect: only connect when browser_task reaches plan
+    async def pre_observe(state: AgentState) -> dict:
+        # pre_observe is the first node that calls MCP tools, so in lazy_mcp mode
+        # it must be the one to establish the connection
         if lazy_mcp and not mcp_client.is_connected:
             await mcp_client.connect()
+        return await pre_observe_node(state, mcp_client)
+
+    async def plan(state: AgentState) -> dict:
         return await plan_node(state, mcp_client)
 
     async def execute(state: AgentState) -> dict:
@@ -45,6 +49,7 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
 
     # Add nodes
     workflow.add_node("classify", classify)
+    workflow.add_node("pre_observe", pre_observe)
     workflow.add_node("plan", plan)
     workflow.add_node("execute", execute)
     workflow.add_node("reflect", reflect)
@@ -61,11 +66,12 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
         {
             "chitchat": "answer",
             "knowledge_qa": "answer",
-            "browser_task": "plan",
+            "browser_task": "pre_observe",
         },
     )
 
     # Rest of edges unchanged
+    workflow.add_edge("pre_observe", "plan")
     workflow.add_edge("plan", "execute")
     workflow.add_edge("execute", "reflect")
     workflow.add_edge("replan", "execute")
@@ -85,7 +91,7 @@ def build_graph(mcp_client: MCPClient, lazy_mcp: bool = False):
 
 
 def _route_classify(state: AgentState) -> str:
-    """Route after classification: chitchat/knowledge_qa → answer, browser_task → plan."""
+    """Route after classification: chitchat/knowledge_qa → answer, browser_task → pre_observe."""
     intent = state.get("intent", "browser_task")
     if intent in ("chitchat", "knowledge_qa"):
         return intent
