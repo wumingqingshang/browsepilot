@@ -361,8 +361,9 @@ async def pre_observe_node(state: AgentState, mcp_client) -> dict:
     except Exception as e:
         logger.warning("[pre_observe] get_page_structure exception: {}", e)
 
-    # Detect known search engines and inject verified selectors (only if page loaded).
-    # These selectors bypass LLM arg-guessing for type_text/click on common search engines.
+    # Detect known search engines and inject verified selectors + search URL template.
+    # The input_selector bypasses LLM for type_text; the search URL template replaces
+    # unreliable button clicks with direct navigation to search results.
     if page_structure:
         try:
             engine_name = match_search_engine(url)
@@ -370,10 +371,10 @@ async def pre_observe_node(state: AgentState, mcp_client) -> dict:
                 engine = SEARCH_ENGINES[engine_name]
                 page_structure["_known_selectors"] = {
                     "input": engine["input_selector"],
-                    "submit": engine["submit_selector"],
+                    "search_url_template": engine["search_url_template"],
                 }
-                logger.info("[pre_observe] Known search engine detected: {} (input={}, submit={})",
-                    engine_name, engine["input_selector"], engine["submit_selector"])
+                logger.info("[pre_observe] Known search engine detected: {} (input={})",
+                    engine_name, engine["input_selector"])
         except Exception as e:
             logger.warning("[pre_observe] Search engine detection failed: {}", e)
 
@@ -581,22 +582,31 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         logger.info("[execute_node] Classifier selected: {} (score >= {})", classified_tool, THRESHOLD)
         extracted_args, is_complete = extract_args(classified_tool, current_step)
 
-        # Known search engine selector injection: bypass LLM for type_text/click selectors.
-        # These selectors come from SEARCH_ENGINES config and are verified, so we can
-        # skip the LLM arg-fill step entirely.
+        # Known search engine optimization: inject verified selectors for type_text,
+        # and replace unreliable button clicks with direct navigation to search URL.
         if classified_tool in ("type_text", "click") and not is_complete:
             known = state.get("page_structure", {}).get("_known_selectors", {})
-            selector_key = {"type_text": "input", "click": "submit"}.get(classified_tool, "")
-            selector = known.get(selector_key, "")
-            if selector:
-                if classified_tool == "type_text":
-                    if extracted_args is None:
-                        extracted_args = {}
-                    extracted_args["selector"] = selector
-                else:
-                    extracted_args = {"selector": selector}
+            if classified_tool == "type_text" and known.get("input"):
+                if extracted_args is None:
+                    extracted_args = {}
+                extracted_args["selector"] = known["input"]
                 is_complete = True
-                logger.info("[execute_node] Injected known {} selector: {}", classified_tool, selector)
+                logger.info("[execute_node] Injected known input selector: {}", known["input"])
+            elif classified_tool == "click" and known.get("search_url_template"):
+                # Find the search query from the previous type_text step
+                query = ""
+                for entry in reversed(state.get("execution_log", [])):
+                    if entry.get("tool") == "type_text":
+                        query = entry.get("result", {}).get("arguments", {}).get("text", "")
+                        if not query:
+                            query = entry.get("step", "")
+                        break
+                if query:
+                    search_url = known["search_url_template"].format(query=query)
+                    extracted_args = {"url": search_url}
+                    is_complete = True
+                    classified_tool = "navigate"
+                    logger.info("[execute_node] Replaced click with navigate to search URL: {}", search_url)
 
         if extracted_args is not None and is_complete:
             # All args extracted from step text — skip LLM entirely

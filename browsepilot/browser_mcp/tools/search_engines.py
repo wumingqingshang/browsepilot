@@ -11,18 +11,18 @@ from browser_mcp.tools import _match_hostname
 SEARCH_ENGINES = {
     "bing.com": {
         "search_url": "https://www.bing.com",
+        "search_url_template": "https://www.bing.com/search?q={query}",
         "input_selector": "#sb_form_q",
-        "submit_selector": "#sb_form_go",
     },
     "baidu.com": {
         "search_url": "https://www.baidu.com",
+        "search_url_template": "https://www.baidu.com/s?wd={query}",
         "input_selector": "#kw",
-        "submit_selector": "#su",
     },
     "google.com": {
         "search_url": "https://www.google.com",
+        "search_url_template": "https://www.google.com/search?q={query}",
         "input_selector": "textarea[name='q']",
-        "submit_selector": "input[name='btnK']",
     },
 }
 

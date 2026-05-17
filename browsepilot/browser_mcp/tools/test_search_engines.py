@@ -35,21 +35,26 @@ class TestSearchEnginesConfig:
     def test_bing_has_selectors(self):
         bing = SEARCH_ENGINES["bing.com"]
         assert bing["input_selector"] == "#sb_form_q"
-        assert bing["submit_selector"] == "#sb_form_go"
         assert bing["search_url"] == "https://www.bing.com"
+        assert "{query}" in bing["search_url_template"]
 
     def test_baidu_has_selectors(self):
         baidu = SEARCH_ENGINES["baidu.com"]
         assert baidu["input_selector"] == "#kw"
-        assert baidu["submit_selector"] == "#su"
+        assert "{query}" in baidu["search_url_template"]
 
     def test_google_has_selectors(self):
         google = SEARCH_ENGINES["google.com"]
         assert google["input_selector"] == "textarea[name='q']"
-        assert "btnK" in google["submit_selector"]
+        assert "{query}" in google["search_url_template"]
+
+    def test_search_url_templates_generate_valid_urls(self):
+        assert "q=test" in SEARCH_ENGINES["bing.com"]["search_url_template"].format(query="test")
+        assert "wd=test" in SEARCH_ENGINES["baidu.com"]["search_url_template"].format(query="test")
+        assert "q=test" in SEARCH_ENGINES["google.com"]["search_url_template"].format(query="test")
 
     def test_all_engines_have_required_keys(self):
         for name, cfg in SEARCH_ENGINES.items():
             assert "search_url" in cfg, f"{name} missing search_url"
+            assert "search_url_template" in cfg, f"{name} missing search_url_template"
             assert "input_selector" in cfg, f"{name} missing input_selector"
-            assert "submit_selector" in cfg, f"{name} missing submit_selector"
