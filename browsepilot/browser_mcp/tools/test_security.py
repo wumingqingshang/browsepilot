@@ -149,13 +149,6 @@ class TestValidateUrlWithWildcards:
         assert validate_url("https://ab-test.com")[0] is False
         set_allowed_domains([])
 
-    def test_wildcard_question_mark(self):
-        """? wildcard should match single character."""
-        set_allowed_domains(["???-test.com"])
-        assert validate_url("https://abc-test.com")[0] is True
-        assert validate_url("https://ab-test.com")[0] is False
-        set_allowed_domains([])
-
 
 class TestFilterJsScript:
     """Tests for filter_js_script function."""

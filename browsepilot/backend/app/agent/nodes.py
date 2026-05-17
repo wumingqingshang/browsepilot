@@ -12,6 +12,7 @@ from loguru import logger
 
 from backend.app.agent.state import AgentState
 from backend.app.config import settings
+from browser_mcp.tools.search_engines import match_search_engine, SEARCH_ENGINES
 
 
 def extract_json(text: str) -> str | None:
@@ -360,14 +361,13 @@ async def pre_observe_node(state: AgentState, mcp_client) -> dict:
     except Exception as e:
         logger.warning("[pre_observe] get_page_structure exception: {}", e)
 
-    # Detect known search engines and inject verified selectors (only if page loaded)
+    # Detect known search engines and inject verified selectors (only if page loaded).
+    # These selectors bypass LLM arg-guessing for type_text/click on common search engines.
     if page_structure:
         try:
-            from browser_mcp.tools.search_engines import match_search_engine, SEARCH_ENGINES
             engine_name = match_search_engine(url)
             if engine_name:
                 engine = SEARCH_ENGINES[engine_name]
-                page_structure["_search_engine"] = engine_name
                 page_structure["_known_selectors"] = {
                     "input": engine["input_selector"],
                     "submit": engine["submit_selector"],
@@ -581,21 +581,22 @@ async def execute_node(state: AgentState, mcp_client, tools: list) -> dict:
         logger.info("[execute_node] Classifier selected: {} (score >= {})", classified_tool, THRESHOLD)
         extracted_args, is_complete = extract_args(classified_tool, current_step)
 
-        # Known search engine selector injection: bypass LLM for type_text/click selectors
+        # Known search engine selector injection: bypass LLM for type_text/click selectors.
+        # These selectors come from SEARCH_ENGINES config and are verified, so we can
+        # skip the LLM arg-fill step entirely.
         if classified_tool in ("type_text", "click") and not is_complete:
-            ps = state.get("page_structure", {})
-            known = ps.get("_known_selectors", {})
-            if known:
-                if classified_tool == "type_text" and known.get("input"):
+            known = state.get("page_structure", {}).get("_known_selectors", {})
+            selector_key = {"type_text": "input", "click": "submit"}.get(classified_tool, "")
+            selector = known.get(selector_key, "")
+            if selector:
+                if classified_tool == "type_text":
                     if extracted_args is None:
                         extracted_args = {}
-                    extracted_args["selector"] = known["input"]
-                    is_complete = True
-                    logger.info("[execute_node] Injected known search input selector: {}", known["input"])
-                elif classified_tool == "click" and known.get("submit"):
-                    extracted_args = {"selector": known["submit"]}
-                    is_complete = True
-                    logger.info("[execute_node] Injected known submit button selector: {}", known["submit"])
+                    extracted_args["selector"] = selector
+                else:
+                    extracted_args = {"selector": selector}
+                is_complete = True
+                logger.info("[execute_node] Injected known {} selector: {}", classified_tool, selector)
 
         if extracted_args is not None and is_complete:
             # All args extracted from step text — skip LLM entirely
@@ -735,8 +736,7 @@ def _run_heuristic_checks(state: AgentState) -> dict:
         content_text = last_result.get("result", last_result.get("content", ""))
         if isinstance(content_text, str) and content_text.strip():
             # Strip HTML tags for meaningful text length check
-            import re as _re
-            clean = _re.sub(r"<[^>]+>", "", content_text).strip()
+            clean = re.sub(r"<[^>]+>", "", content_text).strip()
             if len(clean) < 50:
                 return {
                     "has_issue": True,
@@ -749,11 +749,10 @@ def _run_heuristic_checks(state: AgentState) -> dict:
     last_url = last_result.get("url", "")
     if last_url and step:
         # Extract expected domain from step description
-        import re as _re
-        url_match = _re.search(r"https?://([^/\s]+)", step)
+        url_match = re.search(r"https?://([^/\s]+)", step)
         if url_match:
             expected_domain = url_match.group(1)
-            actual_domain = _re.sub(r"^https?://", "", last_url).split("/")[0]
+            actual_domain = re.sub(r"^https?://", "", last_url).split("/")[0]
             if expected_domain not in actual_domain and actual_domain not in expected_domain:
                 return {
                     "has_issue": True,

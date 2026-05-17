@@ -6,6 +6,8 @@ guess or discover selectors via get_page_structure.
 
 from urllib.parse import urlparse
 
+from browser_mcp.tools import _match_hostname
+
 SEARCH_ENGINES = {
     "bing.com": {
         "search_url": "https://www.bing.com",
@@ -34,6 +36,6 @@ def match_search_engine(url: str) -> str | None:
     except Exception:
         return None
     for engine_name in SEARCH_ENGINES:
-        if hostname == engine_name or hostname.endswith("." + engine_name):
+        if _match_hostname(hostname, engine_name):
             return engine_name
     return None
